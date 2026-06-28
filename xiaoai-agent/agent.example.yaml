@@ -15,12 +15,12 @@ runtime:
 
 device:
   tts_command: "/usr/sbin/tts_play.sh {text}"
-  play_url_command: "killall miplayer 2>/dev/null; miplayer -f {url} >/tmp/dodo-xiaoai-miplayer.log 2>&1 &"
+  play_url_command: "killall miplayer 2>/dev/null; miplayer -f {url} >/tmp/xiaoai-miplayer.log 2>&1 &"
   stop_audio_command: "killall tts_play.sh miplayer 2>/dev/null; mphelper pause"
   pause_audio_command: "mphelper pause 2>/dev/null || true; for p in $(pidof miplayer 2>/dev/null); do kill -STOP \"$p\" 2>/dev/null || true; done"
   resume_audio_command: "for p in $(pidof miplayer 2>/dev/null); do kill -CONT \"$p\" 2>/dev/null || true; done; mphelper play 2>/dev/null || true"
-  duck_audio_command: "amixer sget mysoftvol | awk -F'[][]' '/%/ {print $2; exit}' | tr -d '%' >/tmp/dodo-xiaoai-mysoftvol.before; amixer sset mysoftvol 25% >/dev/null 2>&1 || true"
-  unduck_audio_command: "v=$(cat /tmp/dodo-xiaoai-mysoftvol.before 2>/dev/null); if [ -n \"$v\" ]; then amixer sset mysoftvol \"${v}%\" >/dev/null 2>&1 || true; fi; rm -f /tmp/dodo-xiaoai-mysoftvol.before"
+  duck_audio_command: "amixer sget mysoftvol | awk -F'[][]' '/%/ {print $2; exit}' | tr -d '%' >/tmp/xiaoai-mysoftvol.before; amixer sset mysoftvol 25% >/dev/null 2>&1 || true"
+  unduck_audio_command: "v=$(cat /tmp/xiaoai-mysoftvol.before 2>/dev/null); if [ -n \"$v\" ]; then amixer sset mysoftvol \"${v}%\" >/dev/null 2>&1 || true; fi; rm -f /tmp/xiaoai-mysoftvol.before"
   abort_command: "killall tts_play.sh miplayer 2>/dev/null; mphelper pause 2>/dev/null || true"
   led_enabled: true
   led_listening: 3

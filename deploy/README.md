@@ -22,7 +22,7 @@ Xiaomi 智能音箱 Pro 可以直接使用 Type-C 数据线通过音响底部的
 > [!CAUTION]
 > 刷机有风险，操作需谨慎。刷机可能会造成设备失去保修资格，变砖无法运行等。请自行评估相关风险，一切后果自负！🚨
 
-首先，下载或自行制作[补丁固件](./client-patch/README.md)，重命名为 `root_patched.squashfs`。
+首先，按照 [client-patch/README.md](./client-patch/README.md) 使用本仓库重新打包补丁固件，重命名为 `root_patched.squashfs`。不要直接使用上游预构建的 patched 固件。
 
 然后，下载刷机工具：https://androidmtk.com/download-amlogic-flash-tool
 
