@@ -30,6 +30,8 @@ jobs:
   build-agent:
     name: Build ARMv7 binary
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -68,3 +70,42 @@ jobs:
           name: xiaoai-agent-armv7-glibc-2.25
           path: xiaoai-agent/target/armv7-unknown-linux-gnueabihf/release/xiaoai-agent
           if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build-agent
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: xiaoai-agent-armv7-glibc-2.25
+          path: dist
+
+      - name: Publish release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          chmod +x dist/xiaoai-agent
+
+          tag="$GITHUB_REF_NAME"
+          asset="dist/xiaoai-agent#xiaoai-agent-armv7-glibc-2.25"
+          notes="XiaoAI Agent ARMv7 binary for OH2P.
+
+Target: armv7-unknown-linux-gnueabihf.2.25
+Firmware tested by this project: OH2P 1.62.2"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$asset" --clobber
+          else
+            gh release create "$tag" "$asset" \
+              --title "$tag" \
+              --notes "$notes" \
+              --verify-tag
+          fi
