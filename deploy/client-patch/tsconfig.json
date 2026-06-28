@@ -1,0 +1,5 @@
+{
+  "extends": "@mi-gpt/config/typescript",
+  "include": ["src"],
+  "exclude": ["node_modules"]
+}

@@ -1,0 +1,15 @@
+--- squashfs-root/etc/asound.conf	2026-04-17 16:05:55
++++ squashfs-root-patched/etc/asound.conf	2026-06-28 22:45:00
+@@ -121,7 +121,11 @@
+ 
+ pcm.mico_record {
+     type plug
+-    slave.pcm Capture
++    slave.pcm {
++        type hw
++        card 0
++        device 0
++    }
+ }
+ 
+ pcm.noop {

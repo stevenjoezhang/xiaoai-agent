@@ -1,0 +1,4 @@
+temp
+assets/*
+!assets/.gitkeep
+.env
