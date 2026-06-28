@@ -1,0 +1,70 @@
+name: Build XiaoAI Agent
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+    paths:
+      - ".github/workflows/build-agent.yml"
+      - "xiaoai-agent/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-agent.yml"
+      - "xiaoai-agent/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUST_TOOLCHAIN: "1.88.0"
+  RUST_TARGET: armv7-unknown-linux-gnueabihf
+  ZIGBUILD_TARGET: armv7-unknown-linux-gnueabihf.2.25
+  AGENT_DIR: xiaoai-agent
+
+jobs:
+  build-agent:
+    name: Build ARMv7 binary
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup target add "$RUST_TARGET" --toolchain "$RUST_TOOLCHAIN"
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Install cargo-zigbuild
+        run: cargo +"$RUST_TOOLCHAIN" install cargo-zigbuild --locked --version 0.23.0
+
+      - name: Check
+        working-directory: ${{ env.AGENT_DIR }}
+        run: cargo +"$RUST_TOOLCHAIN" check --locked --bin xiaoai-agent
+
+      - name: Build release binary
+        working-directory: ${{ env.AGENT_DIR }}
+        run: cargo +"$RUST_TOOLCHAIN" zigbuild --release --locked --target "$ZIGBUILD_TARGET" --bin xiaoai-agent
+
+      - name: Inspect binary
+        working-directory: ${{ env.AGENT_DIR }}
+        run: |
+          file "target/$RUST_TARGET/release/xiaoai-agent"
+          ls -lh "target/$RUST_TARGET/release/xiaoai-agent"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaoai-agent-armv7-glibc-2.25
+          path: xiaoai-agent/target/armv7-unknown-linux-gnueabihf/release/xiaoai-agent
+          if-no-files-found: error
