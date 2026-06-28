@@ -96,16 +96,18 @@ jobs:
 
           tag="$GITHUB_REF_NAME"
           asset="dist/xiaoai-agent#xiaoai-agent-armv7-glibc-2.25"
-          notes="XiaoAI Agent ARMv7 binary for OH2P.
+          cat > release-notes.md <<'EOF'
+          XiaoAI Agent ARMv7 binary for OH2P.
 
-Target: armv7-unknown-linux-gnueabihf.2.25
-Firmware tested by this project: OH2P 1.62.2"
+          Target: armv7-unknown-linux-gnueabihf.2.25
+          Firmware tested by this project: OH2P 1.62.2
+          EOF
 
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "$asset" --clobber
           else
             gh release create "$tag" "$asset" \
               --title "$tag" \
-              --notes "$notes" \
+              --notes-file release-notes.md \
               --verify-tag
           fi
