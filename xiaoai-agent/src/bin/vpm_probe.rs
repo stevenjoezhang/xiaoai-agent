@@ -273,31 +273,35 @@ fn main() -> Result<()> {
         let mut init = vec![0u8; INIT_SIZE];
         write_ptr(&mut init, CONFIG_PATH_OFFSET, config_dir.as_ptr() as usize)?;
         write_ptr(&mut init, USER_CTX_OFFSET, 0x5650_4d50)?;
-        write_ptr(&mut init, LOG_CALLBACK_OFFSET, probe_log_callback as usize)?;
+        write_ptr(
+            &mut init,
+            LOG_CALLBACK_OFFSET,
+            probe_log_callback as *const () as usize,
+        )?;
         write_ptr(
             &mut init,
             EVENT_CALLBACK_OFFSET,
-            probe_event_callback as usize,
+            probe_event_callback as *const () as usize,
         )?;
         write_ptr(
             &mut init,
             WAKEUP_DATA_CALLBACK_OFFSET,
-            probe_wakeup_data_callback as usize,
+            probe_wakeup_data_callback as *const () as usize,
         )?;
         write_ptr(
             &mut init,
             ASR_DATA_CALLBACK_OFFSET,
-            probe_asr_data_callback as usize,
+            probe_asr_data_callback as *const () as usize,
         )?;
         write_ptr(
             &mut init,
             VOIP_DATA_CALLBACK_OFFSET,
-            probe_voip_data_callback as usize,
+            probe_voip_data_callback as *const () as usize,
         )?;
         write_ptr(
             &mut init,
             STAT_CALLBACK_OFFSET,
-            probe_stat_callback as usize,
+            probe_stat_callback as *const () as usize,
         )?;
 
         write_u32(&mut init, AUDIO_SAMPLE_RATE_OFFSET, args.sample_rate)?;

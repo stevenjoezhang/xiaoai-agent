@@ -256,28 +256,36 @@ where
         let mut init = vec![0u8; INIT_SIZE];
         write_ptr(&mut init, CONFIG_PATH_OFFSET, config_dir.as_ptr() as usize)?;
         write_ptr(&mut init, USER_CTX_OFFSET, 0x5650_4d50)?;
-        write_ptr(&mut init, LOG_CALLBACK_OFFSET, vpm_log_callback as usize)?;
+        write_ptr(
+            &mut init,
+            LOG_CALLBACK_OFFSET,
+            vpm_log_callback as *const () as usize,
+        )?;
         write_ptr(
             &mut init,
             EVENT_CALLBACK_OFFSET,
-            vpm_event_callback as usize,
+            vpm_event_callback as *const () as usize,
         )?;
         write_ptr(
             &mut init,
             WAKEUP_DATA_CALLBACK_OFFSET,
-            vpm_wakeup_data_callback as usize,
+            vpm_wakeup_data_callback as *const () as usize,
         )?;
         write_ptr(
             &mut init,
             ASR_DATA_CALLBACK_OFFSET,
-            vpm_asr_data_callback as usize,
+            vpm_asr_data_callback as *const () as usize,
         )?;
         write_ptr(
             &mut init,
             VOIP_DATA_CALLBACK_OFFSET,
-            vpm_voip_data_callback as usize,
+            vpm_voip_data_callback as *const () as usize,
         )?;
-        write_ptr(&mut init, STAT_CALLBACK_OFFSET, vpm_stat_callback as usize)?;
+        write_ptr(
+            &mut init,
+            STAT_CALLBACK_OFFSET,
+            vpm_stat_callback as *const () as usize,
+        )?;
         write_u32(&mut init, AUDIO_SAMPLE_RATE_OFFSET, config.kws_sample_rate)?;
         write_u32(&mut init, AUDIO_CHANNELS_OFFSET, config.kws_channels)?;
         write_u32(&mut init, AUDIO_TIME_MS_OFFSET, config.kws_frame_ms)?;
