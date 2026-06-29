@@ -179,6 +179,10 @@ extern "C" fn vpm_wakeup_data_callback(
     _data: *const VpmCallbackData,
     local_word: c_int,
 ) {
+    if local_word != 0 {
+        debug!(local_word, "ignored suspect native KWS wakeup data");
+        return;
+    }
     send_vpm_event(VpmWakeEvent {
         keyword: "XIAOAITONGXUE".to_string(),
         kind: "WAKEUP_DATA",
