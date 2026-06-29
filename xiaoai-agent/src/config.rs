@@ -194,7 +194,7 @@ impl Default for AsrConfig {
             model: "whisper-1".to_string(),
             language: "zh".to_string(),
             prompt: String::new(),
-            timeout_s: 30.0,
+            timeout_s: 5.0,
             retries: 1,
         }
     }
@@ -218,7 +218,7 @@ impl Default for LlmConfig {
             base_url: "https://api.openai.com/v1".to_string(),
             api_key: "EMPTY".to_string(),
             model: "gpt-5.4-mini".to_string(),
-            timeout_s: 35.0,
+            timeout_s: 5.0,
             max_tokens: 300,
             retries: 1,
             temperature: 0.5,
@@ -257,7 +257,7 @@ impl Default for WeatherConfig {
             qweather_url: String::new(),
             default_location: String::new(),
             ip_lookup_url: "https://ipapi.co/json/".to_string(),
-            timeout_s: 10.0,
+            timeout_s: 5.0,
         }
     }
 }
@@ -283,7 +283,7 @@ impl Default for HomeAssistantMcpConfig {
             enabled: false,
             url: "http://homeassistant.local:8123/mcp_server/sse".to_string(),
             token: String::new(),
-            timeout_s: 10.0,
+            timeout_s: 5.0,
         }
     }
 }
@@ -412,7 +412,7 @@ impl Default for NeteaseConfig {
             md5_password: String::new(),
             cookie_file: None,
             default_level: "standard".to_string(),
-            timeout_s: 15.0,
+            timeout_s: 5.0,
             login_on_start: true,
         }
     }
@@ -435,7 +435,7 @@ impl Default for NavidromeConfig {
             username: String::new(),
             password: String::new(),
             api_version: "1.16.1".to_string(),
-            timeout_s: 15.0,
+            timeout_s: 5.0,
         }
     }
 }

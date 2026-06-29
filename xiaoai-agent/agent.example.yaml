@@ -50,14 +50,14 @@ asr:
   model: whisper-1
   language: zh
   prompt: ""
-  timeout_s: 30
+  timeout_s: 5
   retries: 1
 
 llm:
   base_url: https://api.openai.com/v1
   api_key: EMPTY
   model: gpt-5.4-mini
-  timeout_s: 35
+  timeout_s: 5
   max_tokens: 300
   retries: 1
   temperature: 0.5
@@ -68,14 +68,14 @@ agent:
     qweather_url: ""
     default_location: ""
     ip_lookup_url: https://ipapi.co/json/
-    timeout_s: 10
+    timeout_s: 5
 
 mcp:
   home_assistant:
     enabled: false
     url: http://homeassistant.local:8123/mcp_server/sse
     token: ""
-    timeout_s: 10
+    timeout_s: 5
 
 music:
   enabled: false
@@ -94,14 +94,14 @@ music:
     # Optional read-only seed cookie. Login refreshes are kept in memory and are not written back.
     cookie_file: null
     default_level: standard
-    timeout_s: 15
+    timeout_s: 5
     login_on_start: true
   navidrome:
     base_url: http://127.0.0.1:4533
     username: ""
     password: ""
     api_version: 1.16.1
-    timeout_s: 15
+    timeout_s: 5
 
 airplay:
   enabled: false
