@@ -47,11 +47,11 @@ target, and `xiaoai-agent` has successfully produced an ARMv7 hard-float Linux
 binary:
 
 ```bash
-cargo +1.88.0 zigbuild --release --target armv7-unknown-linux-gnueabihf.2.25
+cargo +1.96.0 zigbuild --release --target armv7-unknown-linux-gnueabihf.2.25
 ```
 
 This host uses `cargo-zigbuild` plus `zig` for the ARMv7 Linux native build and
-link steps. A plain `cargo +1.88.0 build --release --target
+link steps. A plain `cargo +1.96.0 build --release --target
 armv7-unknown-linux-gnueabihf` may fail in shells where
 `arm-linux-gnueabihf-gcc` is not present on `PATH`, because dependencies such
 as `ring` and `aws-lc-sys` compile C/assembly during their `build.rs` scripts.

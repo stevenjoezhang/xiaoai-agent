@@ -59,8 +59,8 @@ cd xiaoai-agent
 也可以自行在本地构建。由于音箱端是 ARMv7 Linux，通常需交叉编译。先安装构建工具链：
 
 ```bash
-rustup toolchain install 1.88.0
-rustup target add armv7-unknown-linux-gnueabihf --toolchain 1.88.0
+rustup toolchain install 1.96.0
+rustup target add armv7-unknown-linux-gnueabihf --toolchain 1.96.0
 cargo install cargo-zigbuild
 ```
 
@@ -73,7 +73,7 @@ brew install zig
 构建给 OH2P 使用的 ARMv7 Linux 二进制时，使用固定 Rust 版本和 glibc 2.25 目标：
 
 ```bash
-(cd xiaoai-agent && cargo +1.88.0 zigbuild --release --target armv7-unknown-linux-gnueabihf.2.25)
+(cd xiaoai-agent && cargo +1.96.0 zigbuild --release --target armv7-unknown-linux-gnueabihf.2.25)
 ```
 
 更多交叉编译和 ABI 注意事项见 [AGENTS.md](AGENTS.md)。

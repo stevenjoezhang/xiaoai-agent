@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 env:
-  RUST_TOOLCHAIN: "1.88.0"
+  RUST_TOOLCHAIN: "1.96.0"
   RUST_TARGET: armv7-unknown-linux-gnueabihf
   ZIGBUILD_TARGET: armv7-unknown-linux-gnueabihf.2.25
   AGENT_DIR: xiaoai-agent
