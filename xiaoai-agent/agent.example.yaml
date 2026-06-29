@@ -102,3 +102,20 @@ music:
     password: ""
     api_version: 1.16.1
     timeout_s: 15
+
+airplay:
+  enabled: false
+  name: XiaoAI AirPlay
+  port: 5000
+  password: ""
+  # Optional stable 6-byte identity, for example c2:46:38:ad:3e:25.
+  hwaddr: ""
+  output:
+    backend: aplay
+    aplay_path: /usr/bin/aplay
+    device: default
+    format: S16_LE
+  interruption:
+    # none or duck. duck lowers only AirPlay PCM gain while the voice agent is active.
+    mode: duck
+    duck_gain: 0.25

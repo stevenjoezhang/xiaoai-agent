@@ -16,6 +16,7 @@ pub struct AppConfig {
     pub agent: AgentConfig,
     pub mcp: McpConfig,
     pub music: MusicConfig,
+    pub airplay: AirPlayConfig,
 }
 
 impl AppConfig {
@@ -303,6 +304,68 @@ impl Default for MusicConfig {
             interruption: MusicInterruptionConfig::default(),
             netease: NeteaseConfig::default(),
             navidrome: NavidromeConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct AirPlayConfig {
+    pub enabled: bool,
+    pub name: String,
+    pub port: u16,
+    pub password: String,
+    pub hwaddr: String,
+    pub output: AirPlayOutputConfig,
+    pub interruption: AirPlayInterruptionConfig,
+}
+
+impl Default for AirPlayConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            name: "XiaoAI AirPlay".to_string(),
+            port: 5000,
+            password: String::new(),
+            hwaddr: String::new(),
+            output: AirPlayOutputConfig::default(),
+            interruption: AirPlayInterruptionConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct AirPlayOutputConfig {
+    pub backend: String,
+    pub aplay_path: String,
+    pub device: String,
+    pub format: String,
+}
+
+impl Default for AirPlayOutputConfig {
+    fn default() -> Self {
+        Self {
+            backend: "aplay".to_string(),
+            aplay_path: "/usr/bin/aplay".to_string(),
+            device: "default".to_string(),
+            format: "S16_LE".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct AirPlayInterruptionConfig {
+    pub mode: String,
+    pub duck_gain: f32,
+}
+
+impl Default for AirPlayInterruptionConfig {
+    fn default() -> Self {
+        Self {
+            mode: "duck".to_string(),
+            duck_gain: 0.25,
         }
     }
 }

@@ -1,4 +1,5 @@
 mod agent;
+mod airplay;
 mod asr;
 mod audio;
 mod base;
@@ -28,6 +29,7 @@ use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::agent::AgentRuntime;
+use crate::airplay::AirPlayService;
 use crate::asr::CloudAsr;
 use crate::audio::record::AudioRecorder;
 use crate::capture::record_utterance;
@@ -59,6 +61,7 @@ async fn main() -> anyhow::Result<()> {
     let device = Device::new(config.device.clone());
     let asr = CloudAsr::new(config.asr.clone());
     let music = Arc::new(MusicService::new(config.clone(), device.clone())?);
+    let airplay = AirPlayService::start(config.airplay.clone()).await?;
     let agent = Arc::new(AgentRuntime::new(config.clone(), device.clone(), music.clone()).await?);
 
     let (kws_tx, mut kws_rx) = mpsc::channel::<KwsMonitorEvent>(16);
@@ -89,7 +92,9 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                         let _ = AudioRecorder::instance().stop_recording().await;
-                        if !music.interrupt_for_wake().await {
+                        let music_interrupted = music.interrupt_for_wake().await;
+                        let airplay_interrupted = airplay.interrupt_for_wake().await;
+                        if !music_interrupted && !airplay_interrupted {
                             device.abort_current_output().await;
                         }
                         cleanup_turn_leds(&device, &config.device).await;
@@ -101,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
                             asr: asr.clone(),
                             agent: agent.clone(),
                             music: music.clone(),
+                            airplay: airplay.clone(),
                         };
                         active_turn = Some(tokio::spawn(async move {
                             if let Err(err) = run_turn(state).await {
@@ -153,12 +159,14 @@ struct TurnState {
     asr: CloudAsr,
     agent: Arc<AgentRuntime>,
     music: Arc<MusicService>,
+    airplay: AirPlayService,
 }
 
 async fn run_turn(state: TurnState) -> anyhow::Result<()> {
     let result = run_session(state.clone()).await;
     cleanup_turn_leds(&state.device, &state.config.device).await;
     state.music.restore_after_interruption().await;
+    state.airplay.restore_after_interruption().await;
     result
 }
 

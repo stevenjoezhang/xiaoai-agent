@@ -26,6 +26,7 @@ rmcp = { version = "1.8", features = ["client", "reqwest", "transport-streamable
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
+shairplay = { git = "https://github.com/stevenjoezhang/shairplay-rust.git", rev = "86452c39f6d72b4c44a7a26d025d97ea3da0b3d6", default-features = false }
 shell-words = "1"
 sse-stream = "0.2"
 thiserror = "2"
