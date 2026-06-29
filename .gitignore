@@ -24,3 +24,6 @@ deploy/client-patch/node_modules/
 *.log
 *.pcm
 *.wav
+
+experiments/
+backup/
