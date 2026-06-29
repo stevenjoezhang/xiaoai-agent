@@ -154,7 +154,7 @@ pub struct CaptureConfig {
 impl Default for CaptureConfig {
     fn default() -> Self {
         Self {
-            pcm: "noop".to_string(),
+            pcm: "vpm_asr".to_string(),
             sample_rate: 16000,
             channels: 1,
             bits_per_sample: 16,
@@ -164,9 +164,9 @@ impl Default for CaptureConfig {
             mic_gain: 1.0,
             block_ms: 100,
             pre_roll_ms: 300,
-            silence_ms: 800,
+            silence_ms: 1500,
             min_speech_ms: 300,
-            max_utterance_s: 12.0,
+            max_utterance_s: 15.0,
             cooldown_s: 0.7,
             print_levels: false,
         }
@@ -214,7 +214,7 @@ impl Default for LlmConfig {
         Self {
             base_url: "https://api.openai.com/v1".to_string(),
             api_key: "EMPTY".to_string(),
-            model: "gpt-4o-mini".to_string(),
+            model: "gpt-5.4-mini".to_string(),
             timeout_s: 35.0,
             max_tokens: 300,
             retries: 1,

@@ -21,7 +21,7 @@ device:
   resume_audio_command: "for p in $(pidof miplayer 2>/dev/null); do kill -CONT \"$p\" 2>/dev/null || true; done; mphelper play 2>/dev/null || true"
   duck_audio_command: "amixer sget mysoftvol | awk -F'[][]' '/%/ {print $2; exit}' | tr -d '%' >/tmp/xiaoai-mysoftvol.before; amixer sset mysoftvol 25% >/dev/null 2>&1 || true"
   unduck_audio_command: "v=$(cat /tmp/xiaoai-mysoftvol.before 2>/dev/null); if [ -n \"$v\" ]; then amixer sset mysoftvol \"${v}%\" >/dev/null 2>&1 || true; fi; rm -f /tmp/xiaoai-mysoftvol.before"
-  abort_command: "killall tts_play.sh miplayer 2>/dev/null; mphelper pause 2>/dev/null || true"
+  abort_command: "killall tts_play.sh miplayer 2>/dev/null; mphelper pause 2>/dev/null || true; ubus call mediaplayer media_control '{\"player\":\"mediaplayer\",\"action\":\"pause\",\"volume\":0}' 2>/dev/null || true; ubus call mediaplayer player_play_operation '{\"media\":\"app_ios\",\"action\":\"stop\"}' 2>/dev/null || true"
   led_enabled: true
   led_listening: 3
   led_user_speaking: 4
@@ -39,9 +39,9 @@ capture:
   mic_gain: 1.0
   block_ms: 100
   pre_roll_ms: 300
-  silence_ms: 800
+  silence_ms: 1500
   min_speech_ms: 300
-  max_utterance_s: 12
+  max_utterance_s: 15.0
   cooldown_s: 0.7
 
 asr:
@@ -55,7 +55,7 @@ asr:
 llm:
   base_url: https://api.openai.com/v1
   api_key: EMPTY
-  model: gpt-4o-mini
+  model: gpt-5.4-mini
   timeout_s: 35
   max_tokens: 300
   retries: 1
