@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::Context;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc;
-use tokio::time::sleep;
+use tokio::time::{sleep, Instant};
 use tracing::{debug, info, warn};
 
 use crate::audio::config::AudioConfig;
@@ -52,7 +52,8 @@ where
         .await
         .map_err(|err| anyhow::anyhow!("{err}"))?;
 
-    let idle_timer = sleep(idle_timeout.max(Duration::from_secs(1)));
+    let idle_timeout = idle_timeout.max(Duration::from_secs(1));
+    let idle_timer = sleep(idle_timeout);
     tokio::pin!(idle_timer);
     let mut collector = SpeechCollector::new(&config);
     let mut speech_started = false;
@@ -73,6 +74,10 @@ where
                         SpeechEvent::SpeechStart => {
                             speech_started = true;
                             on_speech_start().await;
+                        }
+                        SpeechEvent::SpeechRejected => {
+                            speech_started = false;
+                            idle_timer.as_mut().reset(Instant::now() + idle_timeout);
                         }
                         SpeechEvent::Utterance(pcm) => {
                             let _ = AudioRecorder::instance().stop_recording().await;
@@ -116,7 +121,8 @@ where
     F: Fn() -> Fut + Send + Sync + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    let idle_timer = sleep(idle_timeout.max(Duration::from_secs(1)));
+    let idle_timeout = idle_timeout.max(Duration::from_secs(1));
+    let idle_timer = sleep(idle_timeout);
     tokio::pin!(idle_timer);
     let mut collector = SpeechCollector::new(&config);
     let mut speech_started = false;
@@ -148,6 +154,10 @@ where
                         SpeechEvent::SpeechStart => {
                             speech_started = true;
                             on_speech_start().await;
+                        }
+                        SpeechEvent::SpeechRejected => {
+                            speech_started = false;
+                            idle_timer.as_mut().reset(Instant::now() + idle_timeout);
                         }
                         SpeechEvent::Utterance(pcm) => return Ok(pcm),
                     }

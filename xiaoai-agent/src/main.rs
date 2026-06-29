@@ -208,7 +208,9 @@ async fn run_session(state: TurnState) -> anyhow::Result<()> {
             .await?;
         let command = text.trim();
         if command.is_empty() {
-            continue;
+            info!("empty ASR result; ending session");
+            state.agent.reset_session("empty ASR result").await;
+            return Ok(());
         }
         info!("USER_ASR text={command}");
 

@@ -9,6 +9,7 @@ pub const BYTES_PER_SAMPLE: usize = 2;
 
 pub enum SpeechEvent {
     SpeechStart,
+    SpeechRejected,
     Utterance(Vec<u8>),
 }
 
@@ -134,7 +135,7 @@ impl SpeechCollector {
 
         if voiced_ms < self.min_speech_ms {
             debug!("CAPTURE_SKIP_SHORT duration={duration_s:.2}s peak={peak:.5}");
-            return None;
+            return Some(SpeechEvent::SpeechRejected);
         }
 
         info!("CAPTURE_UTTERANCE duration={duration_s:.2}s peak={peak:.5}");
