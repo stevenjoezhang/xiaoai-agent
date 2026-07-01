@@ -24,6 +24,9 @@ deploy/client-patch/node_modules/
 *.log
 *.pcm
 *.wav
+*.aiff
+*.s16le
+xiaoai_asr_probe/libaivs_sdk.so
 
 experiments/
 backup/

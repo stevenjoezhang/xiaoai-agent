@@ -21,7 +21,7 @@ futures = "0.3"
 libloading = "0.8"
 md5 = "0.7"
 rand = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["gzip", "json", "multipart", "rustls-tls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["gzip", "json", "multipart", "rustls", "stream"] }
 rig-core = { version = "0.39", features = ["rmcp"] }
 rmcp = { version = "1.8", features = ["client", "reqwest", "transport-streamable-http-client-reqwest"] }
 serde = { version = "1", features = ["derive"] }

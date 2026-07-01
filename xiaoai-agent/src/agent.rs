@@ -7,7 +7,6 @@ use rig_core::providers::openai;
 use rig_core::tool::server::{ToolServer, ToolServerHandle};
 use serde_json::json;
 use tokio::sync::Mutex;
-use tokio::time::timeout;
 use tracing::warn;
 
 use crate::config::{timeout_duration, AppConfig};
@@ -121,23 +120,12 @@ impl AgentRuntime {
         let mut last_error = None;
         let mut text = None;
         for attempt in 1..=attempts {
-            let result = timeout(
-                timeout_duration(self.config.llm.timeout_s),
-                self.prompt_once(prompt.clone()),
-            )
-            .await;
-            match result {
-                Ok(Ok(reply)) => {
+            match self.prompt_once(prompt.clone()).await {
+                Ok(reply) => {
                     text = Some(reply);
                     break;
                 }
-                Ok(Err(err)) => last_error = Some(err),
-                Err(_) => {
-                    last_error = Some(anyhow::anyhow!(
-                        "LLM request timed out after {:.1}s",
-                        self.config.llm.timeout_s
-                    ));
-                }
+                Err(err) => last_error = Some(err),
             }
 
             if attempt < attempts {
@@ -165,9 +153,14 @@ impl AgentRuntime {
     }
 
     async fn prompt_once(&self, prompt: String) -> anyhow::Result<String> {
+        let http_client = reqwest::Client::builder()
+            .timeout(timeout_duration(self.config.llm.timeout_s))
+            .build()
+            .context("failed to create LLM HTTP client")?;
         let client = openai::Client::builder()
             .api_key(self.config.llm.api_key.as_str())
             .base_url(self.config.llm.base_url.as_str())
+            .http_client(http_client)
             .build()
             .context("failed to create OpenAI-compatible Rig client")?
             .completions_api();

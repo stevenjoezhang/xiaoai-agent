@@ -45,19 +45,41 @@ capture:
   cooldown_s: 0.7
 
 asr:
-  base_url: https://api.openai.com/v1
-  api_key: EMPTY
-  model: whisper-1
-  language: zh
-  prompt: ""
-  timeout_s: 5
-  retries: 1
+  # open_ai or xiaomi_aivs
+  provider: xiaomi_aivs
+
+  # OpenAI-compatible ASR settings. Used when provider is open_ai.
+  open_ai:
+    base_url: https://api.openai.com/v1
+    api_key: EMPTY
+    model: whisper-1
+    language: zh
+    prompt: ""
+    timeout_s: 5
+    retries: 1
+
+  # Xiaomi native AIVS ASR. Used when provider is xiaomi_aivs.
+  xiaomi_aivs:
+    sdk_lib: /usr/lib/libaivs_sdk.so
+    token_path: /data/TOKEN
+    miio_dir: /data/miio
+    engine_mode: 2
+    connect_wait_ms: 1500
+    chunk_ms: 100
+    throttle: true
+    wait_after_finish_ms: 15000
+    # Keep true for ASR-only behavior. This sends Execution.RequestControl
+    # as a singular "context" on SpeechRecognizer.Recognize and disables
+    # Xiaomi cloud NLP/TTS/device-control side effects.
+    asr_only: true
+    # Debug only. Setting this true allows normal cloud execution side effects.
+    allow_cloud_execution: false
 
 llm:
   base_url: https://api.openai.com/v1
   api_key: EMPTY
   model: gpt-5.4-mini
-  timeout_s: 35
+  timeout_s: 10
   max_tokens: 300
   retries: 1
   temperature: 0.5

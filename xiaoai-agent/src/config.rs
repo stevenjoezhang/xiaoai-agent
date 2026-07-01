@@ -33,7 +33,7 @@ impl AppConfig {
         }
         config.resolve_paths();
         config.llm.base_url = openai_base_url(&config.llm.base_url);
-        config.asr.base_url = openai_base_url(&config.asr.base_url);
+        config.asr.open_ai.base_url = openai_base_url(&config.asr.open_ai.base_url);
         Ok(config)
     }
 
@@ -177,6 +177,33 @@ impl Default for CaptureConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct AsrConfig {
+    pub provider: AsrProvider,
+    pub open_ai: OpenAiAsrConfig,
+    pub xiaomi_aivs: XiaomiAivsAsrConfig,
+}
+
+impl Default for AsrConfig {
+    fn default() -> Self {
+        Self {
+            provider: AsrProvider::XiaomiAivs,
+            open_ai: OpenAiAsrConfig::default(),
+            xiaomi_aivs: XiaomiAivsAsrConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AsrProvider {
+    #[default]
+    #[serde(alias = "openai")]
+    OpenAi,
+    XiaomiAivs,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct OpenAiAsrConfig {
     pub base_url: String,
     pub api_key: String,
     pub model: String,
@@ -186,7 +213,7 @@ pub struct AsrConfig {
     pub retries: u32,
 }
 
-impl Default for AsrConfig {
+impl Default for OpenAiAsrConfig {
     fn default() -> Self {
         Self {
             base_url: "https://api.openai.com/v1".to_string(),
@@ -196,6 +223,38 @@ impl Default for AsrConfig {
             prompt: String::new(),
             timeout_s: 5.0,
             retries: 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct XiaomiAivsAsrConfig {
+    pub sdk_lib: String,
+    pub token_path: PathBuf,
+    pub miio_dir: PathBuf,
+    pub engine_mode: i32,
+    pub connect_wait_ms: u64,
+    pub chunk_ms: u64,
+    pub throttle: bool,
+    pub wait_after_finish_ms: u64,
+    pub asr_only: bool,
+    pub allow_cloud_execution: bool,
+}
+
+impl Default for XiaomiAivsAsrConfig {
+    fn default() -> Self {
+        Self {
+            sdk_lib: "/usr/lib/libaivs_sdk.so".to_string(),
+            token_path: PathBuf::from("/data/TOKEN"),
+            miio_dir: PathBuf::from("/data/miio"),
+            engine_mode: 2,
+            connect_wait_ms: 1500,
+            chunk_ms: 100,
+            throttle: true,
+            wait_after_finish_ms: 15000,
+            asr_only: true,
+            allow_cloud_execution: false,
         }
     }
 }

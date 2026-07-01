@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/b12d71b7-6734-4166-a2fe-959f82273702
 - 完全接管语音对话流程：为了避免和原生小爱同学抢麦、抢答或触发小米云端控制，本项目会将原生小爱的麦克风输入静音，真实麦克风音频由 `xiaoai-agent` 接管，使用音箱系统 TTS 命令播报回复。
 - 无需单独搭建服务器：Agent 直接运行在音箱上，不再依赖独立的 WebSocket 消息桥接层。
 - 复用设备原生音频能力：使用固件内置的常驻唤醒和 VPM 音频回调机制，音频体验完美；支持连续对话、VAD、中途打断、回声消除、播放时录音。
-- 支持工具和设备控制：使用现代 Agent 框架支撑，内置时间、天气、Navidrome 音乐播放工具，并可通过 Home Assistant MCP 控制智能家居。
+- 支持工具和设备控制：使用现代 Agent 框架支撑，内置时间、天气、网络搜索、Navidrome 音乐播放工具，并可通过 Home Assistant MCP 控制智能家居。
 - 支持 AirPlay 音频输出：音箱可以作为 AirPlay 音频接收端，播放来自 iPhone、iPad、Mac 等设备的音频流。
 - 保留音箱其它系统能力：麦克风输入会被 `xiaoai-agent` 接管，但蓝牙网关等非语音对话服务不受到影响，且 LED 指示灯动态可以自定义控制。
 
@@ -88,7 +88,11 @@ cp xiaoai-agent/agent.example.yaml xiaoai-agent/agent.yaml
 
 然后编辑 `xiaoai-agent/agent.yaml`：
 
-- `asr.base_url`、`asr.api_key`、`asr.model`：ASR 服务配置
+- `asr.provider`：ASR 后端，可选 `open_ai` 或 `xiaomi_aivs`。`open_ai` 使用
+  OpenAI-compatible ASR 配置；`xiaomi_aivs` 复用音箱原生 AIVS ASR，并默认发送
+  ASR-only `Execution.RequestControl`，避免云端 NLP/TTS/设备控制副作用。
+- `asr.open_ai.base_url`、`asr.open_ai.api_key`、`asr.open_ai.model`：
+  OpenAI-compatible ASR 服务配置
 - `llm.base_url`、`llm.api_key`、`llm.model`：大模型服务配置
 - `mcp.home_assistant`：Home Assistant MCP 配置
 - `music`：音乐服务配置，推荐使用 Navidrome；不需要音乐功能时保持 `music.enabled: false`
@@ -134,13 +138,12 @@ Agent 启动后会常驻运行：
 1. 使用固件原生 VPM/FlexKWS 监听唤醒词。
 2. 每次唤醒都会中断当前语音输出或音乐播放，并重置当前对话轮次。
 3. 从 VPM ASR 回调流采集一段 16 kHz 单声道音频。
-4. 将音频封装为内存 WAV，请求 OpenAI-compatible ASR 服务。
+4. 使用配置的 ASR 后端识别文本，可选 OpenAI-compatible ASR 或原生 Xiaomi AIVS ASR。
 5. 把识别文本交给端侧 Rig Agent，并按需调用 MCP、天气、音乐等工具。
 6. 使用小爱音箱系统 TTS 命令朗读回复。
 
 ## TODO
 
-- [ ] 支持 Agent 网络搜索
 - [ ] 支持音箱按键控制
 
 ## 免责声明

@@ -30,7 +30,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::agent::AgentRuntime;
 use crate::airplay::AirPlayService;
-use crate::asr::CloudAsr;
+use crate::asr::AsrClient;
 use crate::audio::record::AudioRecorder;
 use crate::capture::record_utterance;
 use crate::config::{AppConfig, DeviceConfig};
@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let device = Device::new(config.device.clone());
-    let asr = CloudAsr::new(config.asr.clone());
+    let asr = AsrClient::new(config.asr.clone())?;
     let music = Arc::new(MusicService::new(config.clone(), device.clone())?);
     let airplay = AirPlayService::start(config.airplay.clone()).await?;
     let agent = Arc::new(AgentRuntime::new(config.clone(), device.clone(), music.clone()).await?);
@@ -159,7 +159,7 @@ async fn start_kws_monitor(
 struct TurnState {
     config: Arc<AppConfig>,
     device: Device,
-    asr: CloudAsr,
+    asr: AsrClient,
     agent: Arc<AgentRuntime>,
     music: Arc<MusicService>,
     airplay: AirPlayService,
