@@ -426,8 +426,8 @@ impl AivsSdk {
 }
 
 unsafe fn symbol_address(library: &Library, name: &[u8]) -> anyhow::Result<usize> {
-    let symbol = library.get::<u8>(name)?;
-    Ok((&*symbol as *const u8) as usize)
+    let symbol = library.get::<*mut ()>(name)?;
+    Ok(symbol.into_raw().into_raw() as usize)
 }
 
 #[repr(C)]
