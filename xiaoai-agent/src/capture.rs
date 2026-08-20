@@ -61,6 +61,7 @@ where
     loop {
         tokio::select! {
             _ = &mut idle_timer, if !speech_started => {
+                collector.log_noise_floor("timeout");
                 let _ = AudioRecorder::instance().stop_recording().await;
                 anyhow::bail!("timed out waiting for user speech");
             }
@@ -71,10 +72,11 @@ where
                 };
                 for event in collector.push(&bytes) {
                     match event {
-                        SpeechEvent::SpeechStart => {
+                        SpeechEvent::SpeechStart(_) => {
                             speech_started = true;
                             on_speech_start().await;
                         }
+                        SpeechEvent::SpeechChunk(_) => {}
                         SpeechEvent::SpeechRejected => {
                             speech_started = false;
                             idle_timer.as_mut().reset(Instant::now() + idle_timeout);
@@ -229,6 +231,7 @@ where
     loop {
         tokio::select! {
             _ = &mut idle_timer, if !speech_started => {
+                collector.log_noise_floor("timeout");
                 anyhow::bail!("timed out waiting for user speech");
             }
             chunk = rx.recv() => {
@@ -248,10 +251,11 @@ where
                 }
                 for event in collector.push(&bytes) {
                     match event {
-                        SpeechEvent::SpeechStart => {
+                        SpeechEvent::SpeechStart(_) => {
                             speech_started = true;
                             on_speech_start().await;
                         }
+                        SpeechEvent::SpeechChunk(_) => {}
                         SpeechEvent::SpeechRejected => {
                             speech_started = false;
                             idle_timer.as_mut().reset(Instant::now() + idle_timeout);
@@ -289,19 +293,21 @@ where
     loop {
         tokio::select! {
             _ = &mut idle_timer, if !speech_started => {
+                collector.log_noise_floor("timeout");
                 anyhow::bail!("timed out waiting for user speech");
             }
             bytes = rx.recv() => {
                 let Some(bytes) = bytes else {
                     anyhow::bail!("audio recorder stopped before utterance was captured");
                 };
-                on_audio_chunk(bytes.clone()).await?;
                 for event in collector.push(&bytes) {
                     match event {
-                        SpeechEvent::SpeechStart => {
+                        SpeechEvent::SpeechStart(prefix) => {
                             speech_started = true;
                             on_speech_start().await;
+                            on_audio_chunk(prefix).await?;
                         }
+                        SpeechEvent::SpeechChunk(bytes) => on_audio_chunk(bytes).await?,
                         SpeechEvent::SpeechRejected => {
                             speech_started = false;
                             on_speech_rejected().await?;
@@ -342,6 +348,7 @@ where
     loop {
         tokio::select! {
             _ = &mut idle_timer, if !speech_started => {
+                collector.log_noise_floor("timeout");
                 anyhow::bail!("timed out waiting for user speech");
             }
             chunk = rx.recv() => {
@@ -359,13 +366,14 @@ where
                 if chunks == 1 {
                     debug!(bytes = bytes.len(), "VPM_ASR_FIRST_CHUNK");
                 }
-                on_audio_chunk(bytes.clone()).await?;
                 for event in collector.push(&bytes) {
                     match event {
-                        SpeechEvent::SpeechStart => {
+                        SpeechEvent::SpeechStart(prefix) => {
                             speech_started = true;
                             on_speech_start().await;
+                            on_audio_chunk(prefix).await?;
                         }
+                        SpeechEvent::SpeechChunk(bytes) => on_audio_chunk(bytes).await?,
                         SpeechEvent::SpeechRejected => {
                             speech_started = false;
                             on_speech_rejected().await?;
@@ -381,4 +389,69 @@ where
 
 fn is_vpm_asr_capture(pcm: &str) -> bool {
     matches!(pcm.trim(), "vpm_asr" | "vpm")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::*;
+    use crate::vad::BYTES_PER_SAMPLE;
+
+    fn test_config() -> CaptureConfig {
+        CaptureConfig {
+            sample_rate: 1_000,
+            block_ms: 100,
+            pre_roll_ms: 300,
+            silence_ms: 200,
+            min_speech_ms: 100,
+            max_utterance_s: 5.0,
+            cooldown_s: 0.0,
+            threshold: 0.1,
+            ..CaptureConfig::default()
+        }
+    }
+
+    fn pcm_block(sample: i16) -> Vec<u8> {
+        (0..100).flat_map(|_| sample.to_le_bytes()).collect()
+    }
+
+    #[tokio::test]
+    async fn streaming_upload_starts_with_pre_roll_after_vad_trigger() {
+        let config = test_config();
+        let (tx, mut rx) = mpsc::channel(8);
+        for sample in [100, 200, 10_000, 12_000, 0, 0] {
+            tx.send(pcm_block(sample)).await.unwrap();
+        }
+        drop(tx);
+
+        let uploaded = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
+        let uploaded_for_chunk = uploaded.clone();
+        let pcm = collect_recorded_streaming_utterance(
+            config,
+            Duration::from_secs(1),
+            || async {},
+            move |bytes| {
+                let uploaded = uploaded_for_chunk.clone();
+                async move {
+                    uploaded.lock().unwrap().push(bytes);
+                    Ok(())
+                }
+            },
+            || async { Ok(()) },
+            &mut rx,
+        )
+        .await
+        .unwrap();
+
+        let uploaded = uploaded.lock().unwrap();
+        assert_eq!(uploaded.len(), 4);
+        assert_eq!(uploaded[0].len(), 3 * 100 * BYTES_PER_SAMPLE);
+        assert_eq!(pcm.len(), 6 * 100 * BYTES_PER_SAMPLE);
+
+        let mut expected_prefix = pcm_block(100);
+        expected_prefix.extend(pcm_block(200));
+        expected_prefix.extend(pcm_block(10_000));
+        assert_eq!(uploaded[0], expected_prefix);
+    }
 }

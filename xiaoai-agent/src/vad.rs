@@ -8,7 +8,8 @@ use crate::config::CaptureConfig;
 pub const BYTES_PER_SAMPLE: usize = 2;
 
 pub enum SpeechEvent {
-    SpeechStart,
+    SpeechStart(Vec<u8>),
+    SpeechChunk(Vec<u8>),
     SpeechRejected,
     Utterance(Vec<u8>),
 }
@@ -31,6 +32,7 @@ pub struct SpeechCollector {
     voiced_ms: u64,
     silence_run_ms: u64,
     utterance_ms: u64,
+    noise_levels: Vec<f64>,
     last_completed: Option<Instant>,
     last_level_log: Instant,
 }
@@ -59,6 +61,7 @@ impl SpeechCollector {
             voiced_ms: 0,
             silence_run_ms: 0,
             utterance_ms: 0,
+            noise_levels: Vec::new(),
             last_completed: None,
             last_level_log: Instant::now(),
         }
@@ -69,17 +72,19 @@ impl SpeechCollector {
         self.pending.extend_from_slice(bytes);
         while self.pending.len() >= self.block_bytes {
             let block = self.pending.drain(..self.block_bytes).collect::<Vec<_>>();
-            if let Some(event) = self.push_block(block) {
-                events.push(event);
-            }
+            events.extend(self.push_block(block));
         }
         events
     }
 
-    fn push_block(&mut self, mut block: Vec<u8>) -> Option<SpeechEvent> {
+    pub fn log_noise_floor(&self, reason: &'static str) {
+        self.log_noise_floor_with_trigger(reason, None);
+    }
+
+    fn push_block(&mut self, mut block: Vec<u8>) -> Vec<SpeechEvent> {
         if let Some(last_completed) = self.last_completed {
             if !self.in_speech && last_completed.elapsed() < self.cooldown {
-                return None;
+                return Vec::new();
             }
         }
         apply_gain(&mut block, self.mic_gain);
@@ -94,6 +99,9 @@ impl SpeechCollector {
         let is_voice = level >= self.threshold;
 
         if !self.in_speech {
+            if !is_voice {
+                self.noise_levels.push(level);
+            }
             self.pre_roll.push_back(block.clone());
             while self.pre_roll.len() > self.pre_roll_blocks {
                 self.pre_roll.pop_front();
@@ -107,10 +115,11 @@ impl SpeechCollector {
                 self.voiced_ms = block_ms;
                 self.silence_run_ms = 0;
                 self.utterance_ms = block_ms * self.pre_roll.len() as u64;
+                self.log_noise_floor_with_trigger("speech_start", Some(level));
                 debug!("CAPTURE_SPEECH_START level={level:.5}");
-                return Some(SpeechEvent::SpeechStart);
+                return vec![SpeechEvent::SpeechStart(self.utterance.clone())];
             }
-            return None;
+            return Vec::new();
         }
 
         self.utterance.extend_from_slice(&block);
@@ -123,23 +132,37 @@ impl SpeechCollector {
         }
 
         if self.silence_run_ms < self.silence_ms && self.utterance_ms < self.max_utterance_ms {
-            return None;
+            return vec![SpeechEvent::SpeechChunk(block)];
         }
 
+        let final_chunk = block;
         let utterance = std::mem::take(&mut self.utterance);
         let duration_s =
             utterance.len() as f64 / (self.sample_rate as f64 * BYTES_PER_SAMPLE as f64);
         let peak = peak_norm(&utterance);
         let voiced_ms = self.voiced_ms;
+        let end_reason = if self.silence_run_ms >= self.silence_ms {
+            "silence"
+        } else {
+            "max_duration"
+        };
         self.reset_after_utterance();
 
         if voiced_ms < self.min_speech_ms {
             debug!("CAPTURE_SKIP_SHORT duration={duration_s:.2}s peak={peak:.5}");
-            return Some(SpeechEvent::SpeechRejected);
+            return vec![
+                SpeechEvent::SpeechChunk(final_chunk),
+                SpeechEvent::SpeechRejected,
+            ];
         }
 
-        info!("CAPTURE_UTTERANCE duration={duration_s:.2}s peak={peak:.5}");
-        Some(SpeechEvent::Utterance(utterance))
+        info!(
+            "CAPTURE_UTTERANCE duration={duration_s:.2}s peak={peak:.5} voiced_ms={voiced_ms} end={end_reason}"
+        );
+        vec![
+            SpeechEvent::SpeechChunk(final_chunk),
+            SpeechEvent::Utterance(utterance),
+        ]
     }
 
     fn reset_after_utterance(&mut self) {
@@ -148,8 +171,30 @@ impl SpeechCollector {
         self.voiced_ms = 0;
         self.silence_run_ms = 0;
         self.utterance_ms = 0;
+        self.noise_levels.clear();
         self.last_completed = Some(Instant::now());
     }
+
+    fn log_noise_floor_with_trigger(&self, reason: &'static str, trigger_level: Option<f64>) {
+        let mut levels = self.noise_levels.clone();
+        levels.sort_by(f64::total_cmp);
+        let p50 = percentile(&levels, 0.50);
+        let p95 = percentile(&levels, 0.95);
+        let trigger = trigger_level.unwrap_or(0.0);
+        info!(
+            "CAPTURE_NOISE_FLOOR reason={reason} samples={} rms_p50={p50:.5} rms_p95={p95:.5} threshold={:.5} trigger={trigger:.5}",
+            levels.len(),
+            self.threshold,
+        );
+    }
+}
+
+fn percentile(sorted: &[f64], quantile: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let index = ((sorted.len() - 1) as f64 * quantile).round() as usize;
+    sorted[index]
 }
 
 pub fn apply_gain(block: &mut [u8], gain: f64) {
@@ -184,4 +229,74 @@ fn peak_norm(block: &[u8]) -> f64 {
         .map(|sample| i16::from_le_bytes([sample[0], sample[1]]).unsigned_abs() as f64)
         .fold(0.0, f64::max)
         / 32768.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_config() -> CaptureConfig {
+        CaptureConfig {
+            sample_rate: 1_000,
+            block_ms: 100,
+            pre_roll_ms: 300,
+            silence_ms: 200,
+            min_speech_ms: 100,
+            max_utterance_s: 5.0,
+            cooldown_s: 0.0,
+            threshold: 0.1,
+            ..CaptureConfig::default()
+        }
+    }
+
+    fn pcm_block(sample: i16) -> Vec<u8> {
+        (0..100).flat_map(|_| sample.to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn streams_only_after_speech_start_with_pre_roll() {
+        let mut collector = SpeechCollector::new(&test_config());
+        assert!(collector.push(&pcm_block(100)).is_empty());
+        assert!(collector.push(&pcm_block(200)).is_empty());
+
+        let events = collector.push(&pcm_block(10_000));
+        assert_eq!(events.len(), 1);
+        let SpeechEvent::SpeechStart(prefix) = &events[0] else {
+            panic!("expected speech start");
+        };
+        assert_eq!(prefix.len(), 3 * 100 * BYTES_PER_SAMPLE);
+
+        let events = collector.push(&pcm_block(12_000));
+        assert!(matches!(events.as_slice(), [SpeechEvent::SpeechChunk(_)]));
+
+        assert!(matches!(
+            collector.push(&pcm_block(0)).as_slice(),
+            [SpeechEvent::SpeechChunk(_)]
+        ));
+        let events = collector.push(&pcm_block(0));
+        assert!(matches!(
+            events.as_slice(),
+            [SpeechEvent::SpeechChunk(_), SpeechEvent::Utterance(_)]
+        ));
+    }
+
+    #[test]
+    fn short_speech_is_streamed_then_rejected() {
+        let mut config = test_config();
+        config.min_speech_ms = 300;
+        let mut collector = SpeechCollector::new(&config);
+
+        assert!(matches!(
+            collector.push(&pcm_block(10_000)).as_slice(),
+            [SpeechEvent::SpeechStart(_)]
+        ));
+        assert!(matches!(
+            collector.push(&pcm_block(0)).as_slice(),
+            [SpeechEvent::SpeechChunk(_)]
+        ));
+        assert!(matches!(
+            collector.push(&pcm_block(0)).as_slice(),
+            [SpeechEvent::SpeechChunk(_), SpeechEvent::SpeechRejected]
+        ));
+    }
 }

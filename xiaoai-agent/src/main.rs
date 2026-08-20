@@ -178,18 +178,17 @@ async fn run_session(state: TurnState) -> anyhow::Result<()> {
     let mut is_first_turn = true;
 
     loop {
-        state.device.show_led(led.led_listening).await;
         if is_first_turn {
             if let Some(text) = choose_acknowledge_text(&state.config.runtime.acknowledge_text) {
-                let device = state.device.clone();
-                tokio::spawn(async move {
-                    if let Err(err) = device.speak(&text).await {
-                        warn!("failed to speak acknowledge text: {err:?}");
-                    }
-                });
+                state.device.show_led(led.led_speaking).await;
+                if let Err(err) = state.device.speak(&text).await {
+                    warn!("failed to speak acknowledge text: {err:?}");
+                }
+                state.device.shut_led(led.led_speaking).await;
             }
             is_first_turn = false;
         }
+        state.device.show_led(led.led_listening).await;
 
         let device_for_speech = state.device.clone();
         let led_user_speaking = led.led_user_speaking;
