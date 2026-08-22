@@ -418,7 +418,33 @@ impl Default for WebSearchConfig {
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct McpConfig {
+    pub servers: Vec<McpServerConfig>,
+    // Backward-compatible single-server configuration.
     pub home_assistant: HomeAssistantMcpConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct McpServerConfig {
+    pub name: String,
+    pub enabled: bool,
+    pub url: String,
+    pub token: String,
+    pub timeout_s: f64,
+    pub tools: Vec<String>,
+}
+
+impl Default for McpServerConfig {
+    fn default() -> Self {
+        Self {
+            name: "mcp".to_string(),
+            enabled: false,
+            url: String::new(),
+            token: String::new(),
+            timeout_s: 10.0,
+            tools: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -636,13 +662,14 @@ fn resolve_optional_path(root: &Path, path: &mut Option<PathBuf>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{AsrConfig, AsrProvider, LlmConfig, LlmProtocol, LlmThinkingMode};
+    use super::{AsrConfig, AsrProvider, LlmConfig, LlmProtocol, LlmThinkingMode, McpConfig};
 
     #[test]
     fn parses_openai_realtime_provider_alias() {
         let config: AsrConfig = serde_yaml::from_str("provider: openai_realtime\n").unwrap();
         assert!(matches!(config.provider, AsrProvider::OpenAiRealtime));
     }
+
     #[test]
     fn parses_anthropic_with_disabled_thinking() {
         let config: LlmConfig = serde_yaml::from_str(
@@ -652,5 +679,16 @@ mod tests {
         assert_eq!(config.protocol, LlmProtocol::Anthropic);
         assert_eq!(config.thinking.mode, LlmThinkingMode::Disabled);
         assert_eq!(config.thinking.budget_tokens, 2048);
+    }
+
+    #[test]
+    fn parses_generic_mcp_server_with_tool_allowlist() {
+        let config: McpConfig = serde_yaml::from_str(
+            "servers:\n  - name: home_assistant\n    enabled: true\n    url: http://homeassistant.local/api/mcp\n    tools: [ha_search, ha_get_state]\n",
+        )
+        .unwrap();
+        assert_eq!(config.servers.len(), 1);
+        assert_eq!(config.servers[0].name, "home_assistant");
+        assert_eq!(config.servers[0].tools, ["ha_search", "ha_get_state"]);
     }
 }

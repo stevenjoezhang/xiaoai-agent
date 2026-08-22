@@ -100,7 +100,8 @@ cp xiaoai-agent/agent.example.yaml xiaoai-agent/agent.yaml
   `openai_realtime` 时，录音链路会在 VAD 采集期间持续发送
   `input_audio_buffer.append`，并在一句话结束后 `commit` 等待最终文本
 - `llm.base_url`、`llm.api_key`、`llm.model`：大模型服务配置
-- `mcp.home_assistant`：Home Assistant MCP 配置
+- `mcp.servers`：通用 MCP server 列表；每个 server 可独立配置 URL、token、timeout 和工具 allowlist
+- `mcp.home_assistant`：旧版单 Home Assistant MCP 配置，仍向后兼容
 - `music`：音乐服务配置，推荐使用 Navidrome；不需要音乐功能时保持 `music.enabled: false`
 - `runtime` / `capture`：唤醒和录音参数，通常先使用示例值
 - `airplay`：AirPlay 音频输出配置，默认关闭

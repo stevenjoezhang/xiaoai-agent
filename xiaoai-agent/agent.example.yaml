@@ -116,11 +116,14 @@ agent:
     search_depth: basic
 
 mcp:
-  home_assistant:
+  servers:
+  - name: home_assistant
     enabled: false
-    url: http://homeassistant.local:8123/mcp_server/sse
+    url: http://homeassistant.local:8123/api/mcp
     token: ""
-    timeout_s: 5
+    timeout_s: 10
+    # Empty means expose every tool from this server.
+    tools: []
 
 music:
   enabled: false
