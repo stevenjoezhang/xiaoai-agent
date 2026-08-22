@@ -86,6 +86,8 @@ asr:
     allow_cloud_execution: false
 
 llm:
+  # anthropic or open_ai_chat
+  protocol: anthropic
   base_url: https://api.openai.com/v1
   api_key: EMPTY
   model: gpt-5.4-mini
@@ -93,6 +95,10 @@ llm:
   max_tokens: 300
   retries: 1
   temperature: 0.5
+  thinking:
+    # auto, disabled, or enabled. Anthropic enabled mode also uses budget_tokens.
+    mode: disabled
+    budget_tokens: 1024
 
 agent:
   timezone: Asia/Shanghai

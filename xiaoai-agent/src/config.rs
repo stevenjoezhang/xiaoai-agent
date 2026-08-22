@@ -292,6 +292,7 @@ impl Default for XiaomiAivsAsrConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct LlmConfig {
+    pub protocol: LlmProtocol,
     pub base_url: String,
     pub api_key: String,
     pub model: String,
@@ -299,11 +300,13 @@ pub struct LlmConfig {
     pub max_tokens: u64,
     pub retries: u32,
     pub temperature: f64,
+    pub thinking: LlmThinkingConfig,
 }
 
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
+            protocol: LlmProtocol::OpenAiChat,
             base_url: "https://api.openai.com/v1".to_string(),
             api_key: "EMPTY".to_string(),
             model: "gpt-5.4-mini".to_string(),
@@ -311,8 +314,43 @@ impl Default for LlmConfig {
             max_tokens: 300,
             retries: 1,
             temperature: 0.5,
+            thinking: LlmThinkingConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Default, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmProtocol {
+    #[serde(alias = "openai", alias = "chat_completions")]
+    #[default]
+    OpenAiChat,
+    Anthropic,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct LlmThinkingConfig {
+    pub mode: LlmThinkingMode,
+    pub budget_tokens: u64,
+}
+
+impl Default for LlmThinkingConfig {
+    fn default() -> Self {
+        Self {
+            mode: LlmThinkingMode::Disabled,
+            budget_tokens: 1024,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Default, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmThinkingMode {
+    Auto,
+    #[default]
+    Disabled,
+    Enabled,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -598,11 +636,21 @@ fn resolve_optional_path(root: &Path, path: &mut Option<PathBuf>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{AsrConfig, AsrProvider};
+    use super::{AsrConfig, AsrProvider, LlmConfig, LlmProtocol, LlmThinkingMode};
 
     #[test]
     fn parses_openai_realtime_provider_alias() {
         let config: AsrConfig = serde_yaml::from_str("provider: openai_realtime\n").unwrap();
         assert!(matches!(config.provider, AsrProvider::OpenAiRealtime));
+    }
+    #[test]
+    fn parses_anthropic_with_disabled_thinking() {
+        let config: LlmConfig = serde_yaml::from_str(
+            "protocol: anthropic\nthinking:\n  mode: disabled\n  budget_tokens: 2048\n",
+        )
+        .unwrap();
+        assert_eq!(config.protocol, LlmProtocol::Anthropic);
+        assert_eq!(config.thinking.mode, LlmThinkingMode::Disabled);
+        assert_eq!(config.thinking.budget_tokens, 2048);
     }
 }
