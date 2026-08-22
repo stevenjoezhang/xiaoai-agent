@@ -30,6 +30,8 @@ device:
 
 capture:
   pcm: vpm_asr
+  # vpm uses libvpm's native head/middle/tail endpoint events. energy is a fallback.
+  endpoint: vpm
   sample_rate: 16000
   channels: 1
   bits_per_sample: 16
@@ -43,6 +45,8 @@ capture:
   min_speech_ms: 300
   max_utterance_s: 15.0
   cooldown_s: 0.7
+  # Allow a following VPM packet to merge with a just-ended segment.
+  vpm_tail_grace_ms: 900
 
 asr:
   # open_ai, openai_realtime, or xiaomi_aivs

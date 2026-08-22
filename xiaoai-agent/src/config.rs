@@ -138,6 +138,7 @@ impl Default for DeviceConfig {
 #[serde(default)]
 pub struct CaptureConfig {
     pub pcm: String,
+    pub endpoint: CaptureEndpoint,
     pub sample_rate: u32,
     pub channels: u16,
     pub bits_per_sample: u16,
@@ -151,13 +152,25 @@ pub struct CaptureConfig {
     pub min_speech_ms: u64,
     pub max_utterance_s: f64,
     pub cooldown_s: f64,
+    pub vpm_tail_grace_ms: u64,
     pub print_levels: bool,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Default, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureEndpoint {
+    /// Use the native VPM ASR head/middle/tail callbacks when `pcm` is `vpm_asr`.
+    #[default]
+    Vpm,
+    /// Keep the previous local RMS endpoint detector as an explicit fallback.
+    Energy,
 }
 
 impl Default for CaptureConfig {
     fn default() -> Self {
         Self {
             pcm: "vpm_asr".to_string(),
+            endpoint: CaptureEndpoint::Vpm,
             sample_rate: 16000,
             channels: 1,
             bits_per_sample: 16,
@@ -171,6 +184,7 @@ impl Default for CaptureConfig {
             min_speech_ms: 300,
             max_utterance_s: 15.0,
             cooldown_s: 0.7,
+            vpm_tail_grace_ms: 900,
             print_levels: false,
         }
     }

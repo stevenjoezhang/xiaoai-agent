@@ -47,17 +47,43 @@ const WAKEUP_DATA_CALLBACK_OFFSET: usize = 404;
 const ASR_DATA_CALLBACK_OFFSET: usize = 408;
 const VOIP_DATA_CALLBACK_OFFSET: usize = 412;
 const STAT_CALLBACK_OFFSET: usize = 424;
-const ASR_AUDIO_BROADCAST_CAPACITY: usize = 128;
+const ASR_PACKET_BROADCAST_CAPACITY: usize = 128;
 // libvpm maps its internal ASR head/middle/tail 5/6/7 to public data_type 1/2/3.
+const VPM_ASR_DATA_HEAD: u32 = 1;
 const VPM_ASR_DATA_MIDDLE: u32 = 2;
+const VPM_ASR_DATA_TAIL: u32 = 3;
 
 static VPM_EVENT_TX: std::sync::Mutex<Option<mpsc::Sender<VpmWakeEvent>>> =
     std::sync::Mutex::new(None);
-static VPM_ASR_AUDIO_TX: std::sync::Mutex<Option<broadcast::Sender<Vec<u8>>>> =
+static VPM_ASR_PACKET_TX: std::sync::Mutex<Option<broadcast::Sender<VpmAsrPacket>>> =
     std::sync::Mutex::new(None);
 static VPM_COMMAND_TX: std::sync::Mutex<Option<mpsc::Sender<VpmCommand>>> =
     std::sync::Mutex::new(None);
 static VPM_ASR_AUDIO_PACKET_COUNT: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VpmAsrDataType {
+    Head,
+    Middle,
+    Tail,
+}
+
+impl VpmAsrDataType {
+    fn from_callback_type(data_type: u32) -> Option<Self> {
+        match data_type {
+            VPM_ASR_DATA_HEAD => Some(Self::Head),
+            VPM_ASR_DATA_MIDDLE => Some(Self::Middle),
+            VPM_ASR_DATA_TAIL => Some(Self::Tail),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VpmAsrPacket {
+    pub data_type: VpmAsrDataType,
+    pub audio: Vec<u8>,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum KwsMonitorEvent {
@@ -196,15 +222,24 @@ extern "C" fn vpm_asr_data_callback(_ctx: *mut c_void, data: *const VpmCallbackD
         return;
     }
     let data = unsafe { &*data };
-    if data.data.is_null() || data.size == 0 {
+    let Some(data_type) = VpmAsrDataType::from_callback_type(data.data_type) else {
+        debug!(
+            data_type = data.data_type,
+            size = data.size,
+            "ignored unknown VPM ASR packet"
+        );
         return;
-    }
+    };
     log_vpm_asr_packet(data.data_type, data.size);
-    if data.data_type != VPM_ASR_DATA_MIDDLE {
-        return;
+    let audio = if data.data.is_null() || data.size == 0 {
+        Vec::new()
+    } else {
+        unsafe { std::slice::from_raw_parts(data.data, data.size as usize) }.to_vec()
+    };
+    if data_type != VpmAsrDataType::Middle {
+        info!(?data_type, size = audio.len(), "VPM_ASR_BOUNDARY");
     }
-    let bytes = unsafe { std::slice::from_raw_parts(data.data, data.size as usize) }.to_vec();
-    send_vpm_asr_audio(bytes);
+    send_vpm_asr_packet(VpmAsrPacket { data_type, audio });
 }
 
 extern "C" fn vpm_voip_data_callback(_ctx: *mut c_void, _data: *const VpmCallbackData) {}
@@ -226,10 +261,10 @@ where
 
     let (event_tx, event_rx) = mpsc::channel();
     let (command_tx, command_rx) = mpsc::channel();
-    let (asr_audio_tx, _) = broadcast::channel(ASR_AUDIO_BROADCAST_CAPACITY);
+    let (asr_packet_tx, _) = broadcast::channel(ASR_PACKET_BROADCAST_CAPACITY);
     set_vpm_sender(event_tx);
     set_vpm_command_sender(command_tx);
-    set_vpm_asr_audio_sender(asr_audio_tx);
+    set_vpm_asr_packet_sender(asr_packet_tx);
 
     let config_dir = CString::new(config.kws_vpm_config_dir.clone())
         .context("kws_vpm_config_dir contains NUL")?;
@@ -341,15 +376,15 @@ where
         }
         let _ = vpm_stop();
         let _ = vpm_release();
-        clear_vpm_asr_audio_sender();
+        clear_vpm_asr_packet_sender();
         clear_vpm_command_sender();
 
         run_result
     }
 }
 
-pub fn subscribe_vpm_asr_audio() -> Option<broadcast::Receiver<Vec<u8>>> {
-    VPM_ASR_AUDIO_TX
+pub fn subscribe_vpm_asr_packets() -> Option<broadcast::Receiver<VpmAsrPacket>> {
+    VPM_ASR_PACKET_TX
         .lock()
         .ok()
         .and_then(|guard| guard.as_ref().map(broadcast::Sender::subscribe))
@@ -513,7 +548,7 @@ fn clear_vpm_sender() {
     if let Ok(mut guard) = VPM_EVENT_TX.lock() {
         *guard = None;
     }
-    clear_vpm_asr_audio_sender();
+    clear_vpm_asr_packet_sender();
     clear_vpm_command_sender();
 }
 
@@ -527,15 +562,15 @@ fn send_vpm_event(event: VpmWakeEvent) {
     }
 }
 
-fn set_vpm_asr_audio_sender(sender: broadcast::Sender<Vec<u8>>) {
+fn set_vpm_asr_packet_sender(sender: broadcast::Sender<VpmAsrPacket>) {
     VPM_ASR_AUDIO_PACKET_COUNT.store(0, Ordering::Relaxed);
-    if let Ok(mut guard) = VPM_ASR_AUDIO_TX.lock() {
+    if let Ok(mut guard) = VPM_ASR_PACKET_TX.lock() {
         *guard = Some(sender);
     }
 }
 
-fn clear_vpm_asr_audio_sender() {
-    if let Ok(mut guard) = VPM_ASR_AUDIO_TX.lock() {
+fn clear_vpm_asr_packet_sender() {
+    if let Ok(mut guard) = VPM_ASR_PACKET_TX.lock() {
         *guard = None;
     }
 }
@@ -552,13 +587,13 @@ fn clear_vpm_command_sender() {
     }
 }
 
-fn send_vpm_asr_audio(bytes: Vec<u8>) {
-    let sender = VPM_ASR_AUDIO_TX
+fn send_vpm_asr_packet(packet: VpmAsrPacket) {
+    let sender = VPM_ASR_PACKET_TX
         .lock()
         .ok()
         .and_then(|guard| guard.as_ref().cloned());
     if let Some(sender) = sender {
-        let _ = sender.send(bytes);
+        let _ = sender.send(packet);
     }
 }
 
@@ -616,4 +651,26 @@ unsafe fn ptr_to_str_lossy(ptr: *const c_char) -> String {
         return "<null>".to_string();
     }
     CStr::from_ptr(ptr).to_string_lossy().into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_public_vpm_asr_packet_types() {
+        assert_eq!(
+            VpmAsrDataType::from_callback_type(1),
+            Some(VpmAsrDataType::Head)
+        );
+        assert_eq!(
+            VpmAsrDataType::from_callback_type(2),
+            Some(VpmAsrDataType::Middle)
+        );
+        assert_eq!(
+            VpmAsrDataType::from_callback_type(3),
+            Some(VpmAsrDataType::Tail)
+        );
+        assert_eq!(VpmAsrDataType::from_callback_type(4), None);
+    }
 }
