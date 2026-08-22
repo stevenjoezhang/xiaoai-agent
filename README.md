@@ -80,7 +80,8 @@ brew install zig
 
 ### 4. 创建运行配置
 
-为了正常使用，需要准备 ASR 服务和大模型服务 API Key。可选配置包含 Home Assistant Token 等。
+为了正常使用，需要准备 ASR 服务和大模型服务 API Key。智能家居控制推荐连接
+HA-MCP，不需要为音箱单独创建 Home Assistant long-lived token。
 
 ```bash
 cp xiaoai-agent/agent.example.yaml xiaoai-agent/agent.yaml
@@ -99,12 +100,48 @@ cp xiaoai-agent/agent.example.yaml xiaoai-agent/agent.yaml
   `asr.openai_realtime.model`：OpenAI Realtime transcription 服务配置；选择
   `openai_realtime` 时，录音链路会在 VAD 采集期间持续发送
   `input_audio_buffer.append`，并在一句话结束后 `commit` 等待最终文本
-- `llm.base_url`、`llm.api_key`、`llm.model`：大模型服务配置
+- `llm.protocol`、`llm.base_url`、`llm.api_key`、`llm.model`：大模型服务配置。
+  `protocol` 可选 `open_ai_chat` 或 `anthropic`；Anthropic-compatible 服务可通过
+  `thinking.mode` 控制推理。
 - `mcp.servers`：通用 MCP server 列表；每个 server 可独立配置 URL、token、timeout 和工具 allowlist
-- `mcp.home_assistant`：旧版单 Home Assistant MCP 配置，仍向后兼容
 - `music`：音乐服务配置，推荐使用 Navidrome；不需要音乐功能时保持 `music.enabled: false`
 - `runtime` / `capture`：唤醒和录音参数，通常先使用示例值
 - `airplay`：AirPlay 音频输出配置，默认关闭
+
+#### Home Assistant MCP（推荐 HA-MCP）
+
+推荐使用 [homeassistant-ai/ha-mcp](https://github.com/homeassistant-ai/ha-mcp) 的
+HA-MCP Custom Component，而不是 Home Assistant 内置 MCP Server。HA-MCP 提供
+`ha_search`、`ha_get_state`、`ha_call_service` 等结构化工具：Agent 能先按房间和
+自然语言名称找到真实 `entity_id`，再按实际 `domain` 调用服务，避免把设备显示名称
+或空格分词误当成控制参数。
+
+在 Home Assistant 中通过 HACS 添加自定义仓库
+`https://github.com/homeassistant-ai/ha-mcp-integration`（类别选 Integration），安装后
+重启 Home Assistant。随后在“设置 → 设备与服务”添加 HA-MCP Custom Component，选择
+HA-MCP Server，并从其“配置”页面复制 webhook 连接地址。对同一网络内的音箱，地址形如
+`http://<ha-host>:8123/api/webhook/<webhook-id>`。
+
+在 `agent.yaml` 中仅配置这个通用 MCP server：
+
+```yaml
+mcp:
+  servers:
+    - name: home_assistant
+      enabled: true
+      url: http://<ha-host>:8123/api/webhook/<webhook-id>
+      token: ""
+      timeout_s: 10
+      tools:
+        - ha_search
+        - ha_get_state
+        - ha_call_service
+        - ha_bulk_control
+        - ha_get_operation_status
+```
+
+webhook URL 本身是访问凭据，勿提交到仓库。`mcp.home_assistant` 是旧版的 Home
+Assistant 内置 MCP Server 配置，仅为兼容保留；不要与上述 HA-MCP server 同时启用。
 
 ### 5. 安装到音箱
 
