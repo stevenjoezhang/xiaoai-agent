@@ -30,8 +30,7 @@ device:
 
 capture:
   pcm: vpm_asr
-  # vpm uses libvpm's native head/middle/tail endpoint events. energy is a fallback.
-  endpoint: vpm
+  # With server_vad disabled, VPM middle packets use the local energy VAD below.
   sample_rate: 16000
   channels: 1
   bits_per_sample: 16
@@ -45,8 +44,6 @@ capture:
   min_speech_ms: 300
   max_utterance_s: 15.0
   cooldown_s: 0.7
-  # Allow a following VPM packet to merge with a just-ended segment.
-  vpm_tail_grace_ms: 900
 
 asr:
   # open_ai, openai_realtime, or xiaomi_aivs
@@ -67,10 +64,18 @@ asr:
     base_url: https://api.openai.com/v1
     api_key: EMPTY
     model: gpt-realtime-whisper
-    target_sample_rate: 24000
+    # FunASR's realtime Paraformer and FSMN-VAD both require 16 kHz mono PCM.
+    target_sample_rate: 16000
     chunk_ms: 200
     timeout_s: 10
     retries: 1
+    # Let the ASR service decide speech boundaries and emit speech_started /
+    # speech_stopped. Disable only for an OpenAI-compatible service without VAD.
+    server_vad:
+      enabled: true
+      prefix_padding_ms: 300
+      silence_duration_ms: 1200
+      threshold: 0.5
 
   # Xiaomi native AIVS ASR. Used when provider is xiaomi_aivs.
   xiaomi_aivs:

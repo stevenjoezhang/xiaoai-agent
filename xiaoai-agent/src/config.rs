@@ -138,7 +138,6 @@ impl Default for DeviceConfig {
 #[serde(default)]
 pub struct CaptureConfig {
     pub pcm: String,
-    pub endpoint: CaptureEndpoint,
     pub sample_rate: u32,
     pub channels: u16,
     pub bits_per_sample: u16,
@@ -152,25 +151,13 @@ pub struct CaptureConfig {
     pub min_speech_ms: u64,
     pub max_utterance_s: f64,
     pub cooldown_s: f64,
-    pub vpm_tail_grace_ms: u64,
     pub print_levels: bool,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, Default, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum CaptureEndpoint {
-    /// Use the native VPM ASR head/middle/tail callbacks when `pcm` is `vpm_asr`.
-    #[default]
-    Vpm,
-    /// Keep the previous local RMS endpoint detector as an explicit fallback.
-    Energy,
 }
 
 impl Default for CaptureConfig {
     fn default() -> Self {
         Self {
             pcm: "vpm_asr".to_string(),
-            endpoint: CaptureEndpoint::Vpm,
             sample_rate: 16000,
             channels: 1,
             bits_per_sample: 16,
@@ -184,7 +171,6 @@ impl Default for CaptureConfig {
             min_speech_ms: 300,
             max_utterance_s: 15.0,
             cooldown_s: 0.7,
-            vpm_tail_grace_ms: 900,
             print_levels: false,
         }
     }
@@ -257,6 +243,7 @@ pub struct OpenAiRealtimeAsrConfig {
     pub chunk_ms: u32,
     pub timeout_s: f64,
     pub retries: u32,
+    pub server_vad: RealtimeServerVadConfig,
 }
 
 impl Default for OpenAiRealtimeAsrConfig {
@@ -265,10 +252,31 @@ impl Default for OpenAiRealtimeAsrConfig {
             base_url: "https://api.openai.com/v1".to_string(),
             api_key: "EMPTY".to_string(),
             model: "gpt-realtime-whisper".to_string(),
-            target_sample_rate: 24_000,
+            target_sample_rate: 16_000,
             chunk_ms: 200,
             timeout_s: 10.0,
             retries: 1,
+            server_vad: RealtimeServerVadConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct RealtimeServerVadConfig {
+    pub enabled: bool,
+    pub prefix_padding_ms: u32,
+    pub silence_duration_ms: u32,
+    pub threshold: f32,
+}
+
+impl Default for RealtimeServerVadConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 1_200,
+            threshold: 0.5,
         }
     }
 }
@@ -682,6 +690,32 @@ mod tests {
     fn parses_openai_realtime_provider_alias() {
         let config: AsrConfig = serde_yaml::from_str("provider: openai_realtime\n").unwrap();
         assert!(matches!(config.provider, AsrProvider::OpenAiRealtime));
+        assert_eq!(config.openai_realtime.target_sample_rate, 16_000);
+        assert!(config.openai_realtime.server_vad.enabled);
+    }
+
+    #[test]
+    fn parses_realtime_server_vad_settings() {
+        let config: AsrConfig = serde_yaml::from_str(
+            "openai_realtime:\n  target_sample_rate: 16000\n  server_vad:\n    enabled: false\n    prefix_padding_ms: 450\n    silence_duration_ms: 900\n    threshold: 0.7\n",
+        )
+        .unwrap();
+        assert!(!config.openai_realtime.server_vad.enabled);
+        assert_eq!(config.openai_realtime.server_vad.prefix_padding_ms, 450);
+        assert_eq!(config.openai_realtime.server_vad.silence_duration_ms, 900);
+        assert_eq!(config.openai_realtime.server_vad.threshold, 0.7);
+    }
+
+    #[test]
+    fn keeps_server_vad_enabled_when_partially_overridden() {
+        let config: AsrConfig =
+            serde_yaml::from_str("openai_realtime:\n  server_vad:\n    silence_duration_ms: 900\n")
+                .unwrap();
+        let vad = config.openai_realtime.server_vad;
+        assert!(vad.enabled);
+        assert_eq!(vad.prefix_padding_ms, 300);
+        assert_eq!(vad.silence_duration_ms, 900);
+        assert_eq!(vad.threshold, 0.5);
     }
 
     #[test]

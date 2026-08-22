@@ -32,7 +32,9 @@ use crate::agent::AgentRuntime;
 use crate::airplay::AirPlayService;
 use crate::asr::AsrClient;
 use crate::audio::record::AudioRecorder;
-use crate::capture::{record_utterance, record_utterance_streaming};
+use crate::capture::{
+    record_utterance, record_utterance_server_vad_streaming, record_utterance_streaming,
+};
 use crate::config::{AppConfig, DeviceConfig};
 use crate::device::Device;
 use crate::monitor::kws::{KwsMonitor, KwsMonitorEvent};
@@ -191,7 +193,6 @@ async fn run_session(state: TurnState) -> anyhow::Result<()> {
         state.device.show_led(led.led_listening).await;
 
         let device_for_speech = state.device.clone();
-        let led_user_speaking = led.led_user_speaking;
         let idle_timeout =
             Duration::from_secs_f64(state.config.runtime.session_idle_timeout_s.max(1.0));
         let maybe_stream = match state
@@ -205,69 +206,111 @@ async fn run_session(state: TurnState) -> anyhow::Result<()> {
                 return Err(err.context("ASR failed after retries"));
             }
         };
-        let text = if let Some(stream) = maybe_stream {
-            let appender = stream.appender();
-            let appender_for_chunk = appender.clone();
-            let appender_for_reject = appender.clone();
-            let _pcm = match record_utterance_streaming(
-                state.config.capture.clone(),
-                idle_timeout,
-                move || {
-                    let device = device_for_speech.clone();
-                    async move {
-                        device.show_led(led_user_speaking).await;
-                    }
-                },
-                move |bytes| {
-                    let appender = appender_for_chunk.clone();
-                    async move { appender.append_pcm(bytes).await }
-                },
-                move || {
-                    let appender = appender_for_reject.clone();
-                    async move { appender.clear().await }
-                },
-            )
-            .await
-            {
-                Ok(pcm) => pcm,
-                Err(err) if is_capture_timeout(&err) => {
-                    stream.close().await;
-                    info!("session idle timeout");
-                    state.agent.reset_session("session idle timeout").await;
-                    return Ok(());
-                }
-                Err(err) => {
-                    stream.close().await;
-                    return Err(err);
-                }
-            };
-
-            state.device.show_led(led.led_thinking).await;
-            match stream.commit_and_transcribe().await {
-                Ok(text) => text,
-                Err(err) => {
-                    speak_service_error(&state.device, led, ASR_SERVICE_ERROR_PROMPT).await;
-                    return Err(err.context("ASR failed after retries"));
-                }
-            }
-        } else {
-            let pcm =
-                match record_utterance(state.config.capture.clone(), idle_timeout, move || {
-                    let device = device_for_speech.clone();
-                    async move {
-                        device.show_led(led_user_speaking).await;
-                    }
-                })
+        let text = if let Some(mut stream) = maybe_stream {
+            if stream.server_vad_enabled() {
+                let device_for_server_start = device_for_speech.clone();
+                let device_for_server_stop = state.device.clone();
+                let led_user_speaking = led.led_user_speaking;
+                let led_thinking = led.led_thinking;
+                match record_utterance_server_vad_streaming(
+                    state.config.capture.clone(),
+                    idle_timeout,
+                    &mut stream,
+                    move || {
+                        let device = device_for_server_start.clone();
+                        async move {
+                            device.show_led(led_user_speaking).await;
+                        }
+                    },
+                    move || {
+                        let device = device_for_server_stop.clone();
+                        async move {
+                            device.show_led(led_thinking).await;
+                        }
+                    },
+                )
                 .await
                 {
-                    Ok(pcm) => pcm,
+                    Ok(text) => text,
                     Err(err) if is_capture_timeout(&err) => {
+                        stream.close().await;
                         info!("session idle timeout");
                         state.agent.reset_session("session idle timeout").await;
                         return Ok(());
                     }
-                    Err(err) => return Err(err),
+                    Err(err) => {
+                        stream.close().await;
+                        speak_service_error(&state.device, led, ASR_SERVICE_ERROR_PROMPT).await;
+                        return Err(err.context("ASR failed after retries"));
+                    }
+                }
+            } else {
+                let appender = stream.appender();
+                let appender_for_chunk = appender.clone();
+                let appender_for_reject = appender.clone();
+                let led_user_speaking = led.led_user_speaking;
+                let _pcm = match record_utterance_streaming(
+                    state.config.capture.clone(),
+                    idle_timeout,
+                    move || {
+                        let device = device_for_speech.clone();
+                        async move {
+                            device.show_led(led_user_speaking).await;
+                        }
+                    },
+                    move |bytes| {
+                        let appender = appender_for_chunk.clone();
+                        async move { appender.append_pcm(bytes).await }
+                    },
+                    move || {
+                        let appender = appender_for_reject.clone();
+                        async move { appender.clear().await }
+                    },
+                )
+                .await
+                {
+                    Ok(pcm) => pcm,
+                    Err(err) if is_capture_timeout(&err) => {
+                        stream.close().await;
+                        info!("session idle timeout");
+                        state.agent.reset_session("session idle timeout").await;
+                        return Ok(());
+                    }
+                    Err(err) => {
+                        stream.close().await;
+                        return Err(err);
+                    }
                 };
+
+                state.device.show_led(led.led_thinking).await;
+                match stream.commit_and_transcribe().await {
+                    Ok(text) => text,
+                    Err(err) => {
+                        speak_service_error(&state.device, led, ASR_SERVICE_ERROR_PROMPT).await;
+                        return Err(err.context("ASR failed after retries"));
+                    }
+                }
+            }
+        } else {
+            let pcm = match record_utterance(state.config.capture.clone(), idle_timeout, {
+                let led_user_speaking = led.led_user_speaking;
+                move || {
+                    let device = device_for_speech.clone();
+                    async move {
+                        device.show_led(led_user_speaking).await;
+                    }
+                }
+            })
+            .await
+            {
+                Ok(pcm) => pcm,
+                Err(err) if is_capture_timeout(&err) => {
+                    info!("session idle timeout");
+                    state.agent.reset_session("session idle timeout").await;
+                    return Ok(());
+                }
+                Err(err) => return Err(err),
+            };
 
             state.device.show_led(led.led_thinking).await;
             match state

@@ -18,7 +18,7 @@ use reqwest::multipart::{Form, Part};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::sync::{mpsc as tokio_mpsc, oneshot};
+use tokio::sync::mpsc as tokio_mpsc;
 use tokio::time::timeout;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -231,6 +231,16 @@ impl OpenAiRealtimeAsr {
             .await
             .with_context(|| format!("connect Realtime ASR websocket {url}"))?;
 
+        let turn_detection = if self.config.server_vad.enabled {
+            json!({
+                "type": "server_vad",
+                "prefix_padding_ms": self.config.server_vad.prefix_padding_ms,
+                "silence_duration_ms": self.config.server_vad.silence_duration_ms,
+                "threshold": self.config.server_vad.threshold,
+            })
+        } else {
+            Value::Null
+        };
         send_realtime_event(
             &mut ws,
             json!({
@@ -240,7 +250,7 @@ impl OpenAiRealtimeAsr {
                     "audio": {
                         "input": {
                             "format": "pcm16",
-                            "turn_detection": null,
+                            "turn_detection": turn_detection,
                             "transcription": {
                                 "model": self.config.model,
                             },
@@ -252,25 +262,34 @@ impl OpenAiRealtimeAsr {
         .await?;
 
         let (tx, rx) = tokio_mpsc::channel(256);
-        let (result_tx, result_rx) = oneshot::channel();
-        tokio::spawn(run_realtime_stream(ws, rx, result_tx));
+        let (event_tx, event_rx) = tokio_mpsc::unbounded_channel();
+        tokio::spawn(run_realtime_stream(ws, rx, event_tx));
 
         Ok(RealtimeAsrSession {
             tx,
-            result_rx,
+            event_rx,
             sample_rate,
             target_sample_rate: self.config.target_sample_rate,
             timeout_s: self.config.timeout_s,
+            server_vad_enabled: self.config.server_vad.enabled,
         })
     }
 }
 
 pub struct RealtimeAsrSession {
     tx: tokio_mpsc::Sender<RealtimeStreamCommand>,
-    result_rx: oneshot::Receiver<anyhow::Result<String>>,
+    event_rx: tokio_mpsc::UnboundedReceiver<anyhow::Result<RealtimeAsrEvent>>,
     sample_rate: u32,
     target_sample_rate: u32,
     timeout_s: f64,
+    server_vad_enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RealtimeAsrEvent {
+    SpeechStarted { audio_start_ms: u64 },
+    SpeechStopped { audio_end_ms: u64 },
+    Transcript(String),
 }
 
 impl RealtimeAsrSession {
@@ -282,18 +301,40 @@ impl RealtimeAsrSession {
         }
     }
 
-    pub async fn commit_and_transcribe(self) -> anyhow::Result<String> {
+    pub fn server_vad_enabled(&self) -> bool {
+        self.server_vad_enabled
+    }
+
+    pub async fn next_event(&mut self) -> anyhow::Result<RealtimeAsrEvent> {
+        let event = self
+            .event_rx
+            .recv()
+            .await
+            .context("Realtime ASR stream ended before a turn event")?;
+        event
+    }
+
+    pub async fn commit(&self) -> anyhow::Result<()> {
         self.tx
             .send(RealtimeStreamCommand::Commit)
             .await
-            .context("commit Realtime ASR audio buffer")?;
-        timeout(timeout_duration(self.timeout_s), self.result_rx)
-            .await
-            .context("timed out waiting for Realtime ASR transcript")?
-            .context("Realtime ASR stream ended before transcript")?
+            .context("commit Realtime ASR audio buffer")
     }
 
-    pub async fn close(self) {
+    pub async fn commit_and_transcribe(mut self) -> anyhow::Result<String> {
+        self.commit().await?;
+        timeout(timeout_duration(self.timeout_s), async {
+            loop {
+                if let RealtimeAsrEvent::Transcript(text) = self.next_event().await? {
+                    return Ok(text);
+                }
+            }
+        })
+        .await
+        .context("timed out waiting for Realtime ASR transcript")?
+    }
+
+    pub async fn close(&self) {
         let _ = self.tx.send(RealtimeStreamCommand::Close).await;
     }
 }
@@ -335,13 +376,12 @@ enum RealtimeStreamCommand {
 async fn run_realtime_stream<S>(
     mut ws: S,
     mut rx: tokio_mpsc::Receiver<RealtimeStreamCommand>,
-    result_tx: oneshot::Sender<anyhow::Result<String>>,
+    event_tx: tokio_mpsc::UnboundedSender<anyhow::Result<RealtimeAsrEvent>>,
 ) where
     S: futures::Sink<Message, Error = tokio_tungstenite::tungstenite::Error>
         + futures::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>
         + Unpin,
 {
-    let mut result_tx = Some(result_tx);
     let mut last_delta = String::new();
 
     loop {
@@ -374,38 +414,35 @@ async fn run_realtime_stream<S>(
                     }
                 };
                 if let Err(err) = result {
-                    send_realtime_result(&mut result_tx, Err(err));
+                    let _ = event_tx.send(Err(err));
                     break;
                 }
             }
             message = ws.next() => {
                 let Some(message) = message else {
                     if !last_delta.trim().is_empty() {
-                        send_realtime_result(&mut result_tx, Ok(last_delta.trim().to_string()));
+                        let _ = event_tx.send(Ok(RealtimeAsrEvent::Transcript(last_delta.trim().to_string())));
                     } else {
-                        send_realtime_result(
-                            &mut result_tx,
-                            Err(anyhow::anyhow!("Realtime ASR websocket ended before transcript completed")),
-                        );
+                        let _ = event_tx.send(Err(anyhow::anyhow!(
+                            "Realtime ASR websocket ended before transcript completed"
+                        )));
                     }
                     break;
                 };
                 let message = match message {
                     Ok(message) => message,
                     Err(err) => {
-                        send_realtime_result(
-                            &mut result_tx,
-                            Err(anyhow::anyhow!("read Realtime ASR websocket message: {err}")),
-                        );
+                        let _ = event_tx.send(Err(anyhow::anyhow!(
+                            "read Realtime ASR websocket message: {err}"
+                        )));
                         break;
                     }
                 };
                 let Message::Text(text) = message else {
                     if message.is_close() {
-                        send_realtime_result(
-                            &mut result_tx,
-                            Err(anyhow::anyhow!("Realtime ASR websocket closed before transcript completed")),
-                        );
+                        let _ = event_tx.send(Err(anyhow::anyhow!(
+                            "Realtime ASR websocket closed before transcript completed"
+                        )));
                         break;
                     }
                     continue;
@@ -413,13 +450,16 @@ async fn run_realtime_stream<S>(
                 let event: Value = match serde_json::from_str(&text) {
                     Ok(event) => event,
                     Err(err) => {
-                        send_realtime_result(
-                            &mut result_tx,
-                            Err(anyhow::anyhow!("invalid Realtime ASR event JSON: {err}: {text}")),
-                        );
+                        let _ = event_tx.send(Err(anyhow::anyhow!(
+                            "invalid Realtime ASR event JSON: {err}: {text}"
+                        )));
                         break;
                     }
                 };
+                if let Some(turn_event) = realtime_turn_event(&event) {
+                    let _ = event_tx.send(Ok(turn_event));
+                    continue;
+                }
                 match event.get("type").and_then(Value::as_str) {
                     Some("conversation.item.input_audio_transcription.completed") => {
                         let text = event
@@ -428,7 +468,7 @@ async fn run_realtime_stream<S>(
                             .unwrap_or_default()
                             .trim()
                             .to_string();
-                        send_realtime_result(&mut result_tx, Ok(text));
+                        let _ = event_tx.send(Ok(RealtimeAsrEvent::Transcript(text)));
                         let _ = ws.close().await;
                         break;
                     }
@@ -438,17 +478,17 @@ async fn run_realtime_stream<S>(
                         }
                     }
                     Some("error") => {
-                        send_realtime_result(
-                            &mut result_tx,
-                            Err(anyhow::anyhow!("Realtime ASR error: {}", realtime_error_message(&event))),
-                        );
+                        let _ = event_tx.send(Err(anyhow::anyhow!(
+                            "Realtime ASR error: {}",
+                            realtime_error_message(&event)
+                        )));
                         break;
                     }
                     Some("conversation.item.input_audio_transcription.failed") => {
-                        send_realtime_result(
-                            &mut result_tx,
-                            Err(anyhow::anyhow!("Realtime ASR transcription failed: {}", realtime_error_message(&event))),
-                        );
+                        let _ = event_tx.send(Err(anyhow::anyhow!(
+                            "Realtime ASR transcription failed: {}",
+                            realtime_error_message(&event)
+                        )));
                         break;
                     }
                     Some(other) => {
@@ -460,15 +500,6 @@ async fn run_realtime_stream<S>(
                 }
             }
         }
-    }
-}
-
-fn send_realtime_result(
-    result_tx: &mut Option<oneshot::Sender<anyhow::Result<String>>>,
-    result: anyhow::Result<String>,
-) {
-    if let Some(tx) = result_tx.take() {
-        let _ = tx.send(result);
     }
 }
 
@@ -491,6 +522,24 @@ fn realtime_error_message(event: &Value) -> String {
         message.to_string()
     } else {
         event.to_string()
+    }
+}
+
+fn realtime_turn_event(event: &Value) -> Option<RealtimeAsrEvent> {
+    match event.get("type").and_then(Value::as_str) {
+        Some("input_audio_buffer.speech_started") => Some(RealtimeAsrEvent::SpeechStarted {
+            audio_start_ms: event
+                .get("audio_start_ms")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+        }),
+        Some("input_audio_buffer.speech_stopped") => Some(RealtimeAsrEvent::SpeechStopped {
+            audio_end_ms: event
+                .get("audio_end_ms")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+        }),
+        _ => None,
     }
 }
 
@@ -1614,7 +1663,11 @@ fn finish_event_json(dialog_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{realtime_ws_url, resample_pcm16_mono_linear, GnuString32};
+    use super::{
+        realtime_turn_event, realtime_ws_url, resample_pcm16_mono_linear, GnuString32,
+        RealtimeAsrEvent,
+    };
+    use serde_json::json;
 
     #[test]
     fn gnu_string32_has_expected_size() {
@@ -1642,5 +1695,25 @@ mod tests {
             .collect::<Vec<_>>();
         let resampled = resample_pcm16_mono_linear(&pcm, 16_000, 24_000).unwrap();
         assert_eq!(resampled.len(), 6 * 2);
+    }
+
+    #[test]
+    fn parses_server_vad_turn_events() {
+        assert_eq!(
+            realtime_turn_event(&json!({
+                "type": "input_audio_buffer.speech_started",
+                "audio_start_ms": 120,
+            })),
+            Some(RealtimeAsrEvent::SpeechStarted {
+                audio_start_ms: 120,
+            })
+        );
+        assert_eq!(
+            realtime_turn_event(&json!({
+                "type": "input_audio_buffer.speech_stopped",
+                "audio_end_ms": 980,
+            })),
+            Some(RealtimeAsrEvent::SpeechStopped { audio_end_ms: 980 })
+        );
     }
 }

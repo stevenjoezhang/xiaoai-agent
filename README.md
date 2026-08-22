@@ -98,8 +98,10 @@ cp xiaoai-agent/agent.example.yaml xiaoai-agent/agent.yaml
   OpenAI-compatible ASR 服务配置
 - `asr.openai_realtime.base_url`、`asr.openai_realtime.api_key`、
   `asr.openai_realtime.model`：OpenAI Realtime transcription 服务配置；选择
-  `openai_realtime` 时，录音链路会在 VAD 采集期间持续发送
-  `input_audio_buffer.append`，并在一句话结束后 `commit` 等待最终文本
+  `openai_realtime` 时默认启用 `server_vad`：客户端持续发送增强后的 VPM PCM，
+  服务端的 `speech_started` / `speech_stopped` 决定用户语句边界并自动提交最终文本。
+  对 FunASR，`target_sample_rate` 必须保持 `16000`；不支持服务端 VAD 的兼容服务可将
+  `asr.openai_realtime.server_vad.enabled` 设为 `false`，退回本地 energy 端点检测
 - `llm.protocol`、`llm.base_url`、`llm.api_key`、`llm.model`：大模型服务配置。
   `protocol` 可选 `open_ai_chat` 或 `anthropic`；Anthropic-compatible 服务可通过
   `thinking.mode` 控制推理。
