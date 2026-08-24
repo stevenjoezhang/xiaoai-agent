@@ -1,5 +1,7 @@
 # XiaoAI Agent
 
+> **English documentation: [README.EN.md](README.EN.md)**
+
 ![](https://forthebadge.com/images/badges/built-with-love.svg)
 ![](https://forthebadge.com/images/badges/made-with-rust.svg)
 ![](https://forthebadge.com/images/badges/powered-by-electricity.svg)
