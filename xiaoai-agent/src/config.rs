@@ -50,36 +50,14 @@ impl AppConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct RuntimeConfig {
-    pub kws_vpm_lib: String,
-    pub kws_vpm_config_dir: String,
-    pub kws_pcm: String,
-    pub kws_sample_rate: u32,
-    pub kws_channels: u32,
-    pub kws_bits_per_sample: u32,
-    pub kws_frame_ms: u32,
-    pub kws_period_size: u32,
-    pub kws_buffer_size: u32,
-    pub kws_ref_channel_index: u32,
-    pub kws_start_status: Option<i32>,
-    pub acknowledge_text: Vec<String>,
+    pub speech_socket: String,
     pub session_idle_timeout_s: f64,
 }
 
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
-            kws_vpm_lib: "/usr/lib/libvpm.so".to_string(),
-            kws_vpm_config_dir: "/usr/share/mipns/vpm/json_segment".to_string(),
-            kws_pcm: "noop".to_string(),
-            kws_sample_rate: 48_000,
-            kws_channels: 4,
-            kws_bits_per_sample: 32,
-            kws_frame_ms: 8,
-            kws_period_size: 384,
-            kws_buffer_size: 4096,
-            kws_ref_channel_index: 3,
-            kws_start_status: Some(6),
-            acknowledge_text: vec!["在".to_string(), "我在".to_string(), "哎".to_string()],
+            speech_socket: "/tmp/mico_aivs_lab/usock/speech.usock".to_string(),
             session_idle_timeout_s: 20.0,
         }
     }
@@ -106,7 +84,7 @@ pub struct DeviceConfig {
 impl Default for DeviceConfig {
     fn default() -> Self {
         Self {
-            tts_command: "/usr/sbin/tts_play.sh {text}".to_string(),
+            tts_command: "/usr/sbin/tts_play.sh --notify-pns {text}".to_string(),
             play_url_command:
                 "killall miplayer 2>/dev/null; miplayer -f {url} >/tmp/xiaoai-miplayer.log 2>&1 &"
                     .to_string(),
@@ -137,12 +115,7 @@ impl Default for DeviceConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct CaptureConfig {
-    pub pcm: String,
     pub sample_rate: u32,
-    pub channels: u16,
-    pub bits_per_sample: u16,
-    pub period_size: u32,
-    pub buffer_size: u32,
     pub threshold: f64,
     pub mic_gain: f64,
     pub block_ms: u64,
@@ -157,12 +130,7 @@ pub struct CaptureConfig {
 impl Default for CaptureConfig {
     fn default() -> Self {
         Self {
-            pcm: "vpm_asr".to_string(),
             sample_rate: 16000,
-            channels: 1,
-            bits_per_sample: 16,
-            period_size: 360,
-            buffer_size: 1440,
             threshold: 0.006,
             mic_gain: 1.0,
             block_ms: 100,

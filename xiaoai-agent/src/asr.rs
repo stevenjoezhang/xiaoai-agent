@@ -560,7 +560,7 @@ fn resample_pcm16_mono_linear(
     target_sample_rate: u32,
 ) -> anyhow::Result<Vec<u8>> {
     anyhow::ensure!(
-        pcm.len() % BYTES_PER_SAMPLE == 0,
+        pcm.len().is_multiple_of(BYTES_PER_SAMPLE),
         "PCM16 byte length is odd"
     );
     anyhow::ensure!(sample_rate > 0, "sample_rate must be positive");

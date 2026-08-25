@@ -1,20 +1,9 @@
 runtime:
-  kws_vpm_lib: /usr/lib/libvpm.so
-  kws_vpm_config_dir: /usr/share/mipns/vpm/json_segment
-  kws_pcm: noop
-  kws_sample_rate: 48000
-  kws_channels: 4
-  kws_bits_per_sample: 32
-  kws_frame_ms: 8
-  kws_period_size: 384
-  kws_buffer_size: 4096
-  kws_ref_channel_index: 3
-  kws_start_status: 6
-  acknowledge_text: ["在", "我在", "哎"]
+  speech_socket: /tmp/mico_aivs_lab/usock/speech.usock
   session_idle_timeout_s: 20
 
 device:
-  tts_command: "/usr/sbin/tts_play.sh {text}"
+  tts_command: "/usr/sbin/tts_play.sh --notify-pns {text}"
   play_url_command: "killall miplayer 2>/dev/null; miplayer -f {url} >/tmp/xiaoai-miplayer.log 2>&1 &"
   stop_audio_command: "killall tts_play.sh miplayer 2>/dev/null; mphelper pause"
   pause_audio_command: "mphelper pause 2>/dev/null || true; for p in $(pidof miplayer 2>/dev/null); do kill -STOP \"$p\" 2>/dev/null || true; done"
@@ -29,13 +18,8 @@ device:
   led_speaking: 5
 
 capture:
-  pcm: vpm_asr
-  # With server_vad disabled, VPM middle packets use the local energy VAD below.
+  # mipns provides 16 kHz mono signed 16-bit little-endian PCM.
   sample_rate: 16000
-  channels: 1
-  bits_per_sample: 16
-  period_size: 360
-  buffer_size: 1440
   threshold: 0.006
   mic_gain: 1.0
   block_ms: 100
