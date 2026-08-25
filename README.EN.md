@@ -47,12 +47,12 @@ cd xiaoai-agent
 
 ### 2. Repack the Patched Firmware
 
-To run XiaoAI Agent on the speaker, you need to use this repository to repack the patched firmware yourself, then flash a rootfs with SSH, startup scripts, and audio path adjustments. Do not directly use the upstream Open-XiaoAI prebuilt patched firmware; it does not include this project's patch for muting the native XiaoAI microphone input.
+To run XiaoAI Agent on the speaker, you need to use this repository to repack the patched firmware yourself, then flash a rootfs with SSH and the startup hook. Do not directly use the upstream Open-XiaoAI prebuilt patched firmware; voice-path adjustments are applied at runtime by the Agent launcher.
 
 - Building the patched firmware and flashing: see [deploy/README.md](deploy/README.md)
 - The author's OH2P 1.62.2 build notes: see [deploy/OH2P_1.62.2_BUILD_NOTES.md](deploy/OH2P_1.62.2_BUILD_NOTES.md)
 
-The patched firmware provides SSH and the `/data/init.sh` startup hook, and it mutes the native XiaoAI microphone input to avoid conflicts with `xiaoai-agent`.
+The patched firmware provides SSH and the `/data/init.sh` startup hook; voice-path takeover is not written into the firmware.
 
 ### 3. Build the Speaker-Side Agent
 
@@ -138,13 +138,17 @@ scp -O xiaoai-agent/target/armv7-unknown-linux-gnueabihf/release/xiaoai-agent \
 scp -O xiaoai-agent/agent.yaml \
   root@<speaker-ip>:/data/open-xiaoai/agent.yaml
 
-ssh root@<speaker-ip> 'chmod +x /data/open-xiaoai/xiaoai-agent'
+scp -O xiaoai-agent/start-agent.sh \
+  root@<speaker-ip>:/data/open-xiaoai/start-agent.sh
+
+ssh root@<speaker-ip> \
+  'chmod +x /data/open-xiaoai/xiaoai-agent /data/open-xiaoai/start-agent.sh'
 ```
 
 After logging into the speaker through SSH, run it manually first and confirm that wake word detection, recording, ASR, LLM replies, and TTS all work correctly:
 
 ```sh
-RUST_LOG=debug /data/open-xiaoai/xiaoai-agent -c /data/open-xiaoai/agent.yaml
+RUST_LOG=debug /data/open-xiaoai/start-agent.sh start
 ```
 
 After confirmation, write `/data/init.sh` on the speaker for startup:
@@ -152,7 +156,7 @@ After confirmation, write `/data/init.sh` on the speaker for startup:
 ```sh
 cat >/data/init.sh <<'EOF'
 #!/bin/sh
-RUST_LOG=info /data/open-xiaoai/xiaoai-agent -c /data/open-xiaoai/agent.yaml >>/data/open-xiaoai/xiaoai-agent.log 2>&1 &
+exec /data/open-xiaoai/start-agent.sh start
 EOF
 chmod +x /data/init.sh
 ```

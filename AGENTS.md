@@ -19,9 +19,11 @@ The agent binds the standard path:
 /tmp/mico_aivs_lab/usock/speech.usock
 ```
 
-The firmware patch starts `mipns-xiaomi` without `-r opus32` so that this socket
-receives PCM rather than Opus. Do not restore `-r opus32` unless the agent also
-gains a packet-preserving Opus decoder.
+The runtime launcher copies the firmware's `pns` init script to `/tmp`, removes
+`-r opus32`, and bind-mounts that copy over `/etc/init.d/pns` for the current
+boot. This makes the socket receive PCM rather than Opus without changing the
+rootfs. Do not bypass `start-agent.sh` or restore `-r opus32` unless the agent
+also gains a packet-preserving Opus decoder.
 
 `mico_aivs_lab` must remain running because its `common.usock` services are used
 by the system TTS path. The agent isolates only its speech endpoint by moving the

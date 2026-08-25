@@ -47,12 +47,12 @@ cd xiaoai-agent
 
 ### 2. 重新打包补丁固件
 
-为了在音箱上运行 XiaoAI Agent 程序，需要自行使用本仓库重新打包补丁固件，并刷入带 SSH、启动脚本和音频路径调整的 rootfs。不要直接使用上游 Open-XiaoAI 预构建的 patched 固件；它不包含本项目用于静音原生小爱麦克风输入的补丁。
+为了在音箱上运行 XiaoAI Agent 程序，需要自行使用本仓库重新打包补丁固件，并刷入带 SSH 和启动脚本的 rootfs。不要直接使用上游 Open-XiaoAI 预构建的 patched 固件；语音链路调整由 Agent 启动脚本在运行时完成。
 
 - 生成补丁固件和刷机：见 [deploy/README.md](deploy/README.md)
 - 作者自己 OH2P 1.62.2 构建踩坑记录：见 [deploy/OH2P_1.62.2_BUILD_NOTES.md](deploy/OH2P_1.62.2_BUILD_NOTES.md)
 
-补丁固件会提供 SSH 和 `/data/init.sh` 启动钩子，并让原生小爱的麦克风输入静音，避免与 `xiaoai-agent` 冲突。
+补丁固件会提供 SSH 和 `/data/init.sh` 启动钩子；语音链路接管不写入固件。
 
 ### 3. 构建音箱端 Agent
 
@@ -158,13 +158,17 @@ scp -O xiaoai-agent/target/armv7-unknown-linux-gnueabihf/release/xiaoai-agent \
 scp -O xiaoai-agent/agent.yaml \
   root@<speaker-ip>:/data/open-xiaoai/agent.yaml
 
-ssh root@<speaker-ip> 'chmod +x /data/open-xiaoai/xiaoai-agent'
+scp -O xiaoai-agent/start-agent.sh \
+  root@<speaker-ip>:/data/open-xiaoai/start-agent.sh
+
+ssh root@<speaker-ip> \
+  'chmod +x /data/open-xiaoai/xiaoai-agent /data/open-xiaoai/start-agent.sh'
 ```
 
 通过 SSH 登录音箱后，先手动运行，确认唤醒、录音、ASR、大模型回复和 TTS 都正常：
 
 ```sh
-RUST_LOG=debug /data/open-xiaoai/xiaoai-agent -c /data/open-xiaoai/agent.yaml
+RUST_LOG=debug /data/open-xiaoai/start-agent.sh start
 ```
 
 确认后，在音箱上写入 `/data/init.sh` 开机自启：
@@ -172,7 +176,7 @@ RUST_LOG=debug /data/open-xiaoai/xiaoai-agent -c /data/open-xiaoai/agent.yaml
 ```sh
 cat >/data/init.sh <<'EOF'
 #!/bin/sh
-RUST_LOG=info /data/open-xiaoai/xiaoai-agent -c /data/open-xiaoai/agent.yaml >>/data/open-xiaoai/xiaoai-agent.log 2>&1 &
+exec /data/open-xiaoai/start-agent.sh start
 EOF
 chmod +x /data/init.sh
 ```

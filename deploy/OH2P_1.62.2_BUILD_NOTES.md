@@ -77,4 +77,4 @@ root.squashfs
 root-patched.squashfs
 ```
 
-`root.squashfs` 可作为参考或恢复输入。补丁后应避免原生 OTA；如果设备意外升级，SSH、`/data/init.sh` 自启动和音频路径 patch 都可能消失，需要针对新固件重新制作补丁。
+`root.squashfs` 可作为参考或恢复输入。补丁后应避免原生 OTA；如果设备意外升级，SSH 和 `/data/init.sh` 自启动钩子可能消失，需要针对新固件重新制作补丁。
