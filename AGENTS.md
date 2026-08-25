@@ -4,39 +4,48 @@ This file complements [README.md](README.md). The README is the user-facing
 entry point; this document records engineering notes and invariants for future
 coding agents working on this repository.
 
-## Device Audio Invariant
+## Native Speech Frontend Invariant
 
-The `hw:0,0` route is intentional.
+The agent does not open an ALSA capture device and does not load `libvpm.so` or
+`libaivs_sdk.so`. The firmware's device-specific `mipns-*` process remains the
+sole owner of the real microphone path and continues to provide the matched
+microphone-array processing, wake word, AEC, beamforming, and VAD. It sends wake
+events and 16 kHz mono `S16_LE` PCM to the agent over the native
+`speech.usock` datagram protocol.
 
-On the OH2P speaker, native XiaoAI competes with this agent: it can answer first
-and can also trigger Xiaomi cloud-side device actions. To avoid that
-interference, the native XiaoAI capture path is deliberately hijacked by mapping
-`pcm.mico_record` away from the real microphone capture stream and onto
-`hw:0,0`, which behaves as an empty/ineffective audio source for the native
-service in this setup.
+The agent binds the standard path:
 
-Do not "fix" this by restoring `pcm.mico_record` to `Capture` unless the user
-explicitly wants native XiaoAI ASR/control side effects back.
+```text
+/tmp/mico_aivs_lab/usock/speech.usock
+```
 
-The useful microphone stream for this agent is the real capture path:
+The firmware patch starts `mipns-xiaomi` without `-r opus32` so that this socket
+receives PCM rather than Opus. Do not restore `-r opus32` unless the agent also
+gains a packet-preserving Opus decoder.
 
-- `pcm.Capture`
-- `pcm.noop`
-- underlying hardware: `hw:0,3`
-- format: 48 kHz, 4 channels, `S32_LE`
-- frame size used by native flexkws config: 8 ms, 384 frames
+`mico_aivs_lab` must remain running because its `common.usock` services are used
+by the system TTS path. The agent isolates only its speech endpoint by moving the
+native socket to `speech.native.usock`, then takes over the standard speech
+socket before `mipns` reconnects. Do not stop the complete service or remove the
+socket-isolation logic merely because the agent no longer uses native AIVS ASR.
 
-This matches the firmware `flexkws.json5` `raw_stream` input. Keep native XiaoAI
-muted/isolated while feeding the agent from the real capture path.
+The native `/data/mipns/dialog_continuous` mode is deliberately disabled. After
+each answer, the agent finishes the current native dialog and requests the next
+capture through `pnshelper`'s public `ubus` event. This segmented sequence is
+required for reliable follow-up turns; restoring the native full-duplex marker
+can make the LED turn off and prevent the next utterance from reaching the
+agent.
 
-When `capture.pcm` is `vpm_asr`, utterance capture is no longer reading the raw
-4-channel ALSA stream. It consumes `libvpm`'s ASR callback output, which is
-16 kHz mono `S16_LE` after VPM/FlexKWS processing. RMS levels are therefore not
-comparable with the older raw `arecord` path: raw capture could peak near 1.0,
-while observed VPM ASR speech is commonly around `0.02` to `0.1` and room/noise
-around `0.001` to `0.005`. A VPM ASR VAD threshold around `0.006` is intentional;
-do not reuse raw-capture thresholds such as `0.16` without rechecking
-`CAPTURE_LEVEL` on the actual backend.
+Keep this ownership boundary intact:
+
+```text
+real microphone -> native mipns-* -> speech.usock -> xiaoai-agent -> external ASR
+```
+
+Supporting another model should normally reuse that model's own `mipns-*`
+frontend instead of linking the agent directly to model-specific shared
+libraries. Compatibility still depends on the firmware providing a compatible
+`mipns` executable, socket protocol, PCM mode, and `pnshelper` control path.
 
 ## Cross Compilation
 
@@ -78,10 +87,12 @@ ELF 32-bit LSB pie executable, ARM, EABI5, dynamically linked,
 interpreter /lib/ld-linux-armhf.so.3
 ```
 
-That ABI matches the speaker userland and the firmware `libflexkws.so`, which is
-also 32-bit ARM hard-float. If a future shell cannot find a bare
-`arm-linux-gnueabihf-gcc`, inspect the existing Rust target/build setup and the
-`cargo-zigbuild` glibc 2.25 path before rewriting the toolchain assumptions.
+That ABI matches the speaker userland. The agent has no direct dependency on
+model-specific Xiaomi shared libraries; its expected ELF dependencies are the
+standard glibc runtime libraries `libc`, `libm`, `libpthread`, and `libdl`. If a
+future shell cannot find a bare `arm-linux-gnueabihf-gcc`, inspect the existing
+Rust target/build setup and the `cargo-zigbuild` glibc 2.25 path before rewriting
+the toolchain assumptions.
 
 ## Runtime Safety
 
@@ -89,7 +100,9 @@ also 32-bit ARM hard-float. If a future shell cannot find a bare
   probes, PID files, and temporary audio.
 - Do not commit real `agent.yaml` secrets. Use sanitized examples for committed
   config.
-- Do not restart or restore native XiaoAI audio paths casually; that can bring
-  back double answers and cloud-side control actions.
-- When testing low-level audio or KWS changes, prefer a standalone probe first,
+- Do not reconnect `mipns` to the native AIVS speech socket; that can bring back
+  double answers and cloud-side control actions.
+- Do not stop `mico_aivs_lab` as part of normal Agent startup; doing so also
+  removes services required by system TTS.
+- When testing `speech.usock` protocol changes, prefer `xiaoai_asr_probe` first,
   then wire the validated behavior into the main agent.
