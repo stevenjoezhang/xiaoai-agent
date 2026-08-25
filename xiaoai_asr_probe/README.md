@@ -66,7 +66,7 @@ AsrPartialMessage:
 
 Important: the downlink `asr_partial` path used by `mipns-xiaomi` appears to carry only final/length/dialog IDs, not the transcript text itself. This probe prints every string field it can see in downlink messages and can dump raw protobuf fields so we can confirm that on device without depending on log parsing.
 
-For ASR-only cloud behavior, keep `/data/pns.lab` enabled or otherwise ensure `mico_aivs_lab` adds `Execution.RequestControl` disabling NLP/TTS.
+Warning: invoking the native AIVS service may trigger Xiaomi cloud-side device control even when `mico_aivs_lab` sends an ASR-only `Execution.RequestControl`. This probe is retained only for protocol research and must not be used as the Agent's ASR backend.
 
 ## Usage
 

@@ -46,8 +46,8 @@ capture:
   cooldown_s: 0.7
 
 asr:
-  # open_ai, openai_realtime, or xiaomi_aivs
-  provider: xiaomi_aivs
+  # open_ai or openai_realtime
+  provider: open_ai
 
   # OpenAI-compatible ASR settings. Used when provider is open_ai.
   open_ai:
@@ -76,23 +76,6 @@ asr:
       prefix_padding_ms: 300
       silence_duration_ms: 1200
       threshold: 0.5
-
-  # Xiaomi native AIVS ASR. Used when provider is xiaomi_aivs.
-  xiaomi_aivs:
-    sdk_lib: /usr/lib/libaivs_sdk.so
-    token_path: /data/TOKEN
-    miio_dir: /data/miio
-    engine_mode: 2
-    connect_wait_ms: 1500
-    # Chunk size only. Buffered audio is always sent as fast as possible.
-    chunk_ms: 100
-    wait_after_finish_ms: 15000
-    # Keep true for ASR-only behavior. This sends Execution.RequestControl
-    # as a singular "context" on SpeechRecognizer.Recognize and disables
-    # Xiaomi cloud NLP/TTS/device-control side effects.
-    asr_only: true
-    # Debug only. Setting this true allows normal cloud execution side effects.
-    allow_cloud_execution: false
 
 llm:
   # anthropic or open_ai_chat

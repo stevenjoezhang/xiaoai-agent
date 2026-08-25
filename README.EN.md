@@ -7,8 +7,8 @@
 ![](https://forthebadge.com/images/badges/powered-by-electricity.svg)
 ![](https://forthebadge.com/images/badges/makes-people-smile.svg)
 
-An independent voice Agent that runs directly on XiaoAI speakers. With ASR and LLM service API configuration, the speaker can handle wake word detection, ASR, LLM conversation, tool calls, and TTS replies on device.
-Unlike Open-XiaoAI and [MiGPT](https://github.com/idootop/mi-gpt), XiaoAI Agent does not require a dedicated server for running the Agent, and it does not compete with the native XiaoAI assistant for microphone input, answers, or Xiaomi cloud-side device control.
+An independent voice Agent that runs directly on XiaoAI speakers. With external ASR and LLM service API configuration, the speaker can handle wake word detection, ASR, LLM conversation, tool calls, and TTS replies on device.
+Unlike Open-XiaoAI and [MiGPT](https://github.com/idootop/mi-gpt), XiaoAI Agent does not require a dedicated server for running the Agent, does not compete with the native XiaoAI assistant for microphone input or answers, and does not trigger Xiaomi cloud-side device control.
 At the moment, it has only been successfully tested on Xiaomi Smart Speaker Pro (OH2P) firmware `1.62.2`. Other models and firmware versions require your own adaptation and are used at your own risk.
 
 https://github.com/user-attachments/assets/b12d71b7-6734-4166-a2fe-959f82273702
@@ -90,7 +90,7 @@ cp xiaoai-agent/agent.example.yaml xiaoai-agent/agent.yaml
 
 Then edit `xiaoai-agent/agent.yaml`:
 
-- `asr.provider`: ASR backend. Available values are `open_ai`, `openai_realtime`, and `xiaomi_aivs`. `open_ai` uses OpenAI-compatible HTTP ASR configuration; `openai_realtime` uses the OpenAI Realtime transcription WebSocket event protocol; `xiaomi_aivs` reuses the speaker's native AIVS ASR and sends ASR-only `Execution.RequestControl` by default to avoid cloud-side NLP, TTS, and device-control side effects.
+- `asr.provider`: external ASR backend. Available values are `open_ai` and `openai_realtime`. `open_ai` uses OpenAI-compatible HTTP ASR configuration; `openai_realtime` uses the OpenAI Realtime transcription WebSocket event protocol.
 - `asr.open_ai.base_url`, `asr.open_ai.api_key`, `asr.open_ai.model`: OpenAI-compatible ASR service configuration
 - `asr.openai_realtime.base_url`, `asr.openai_realtime.api_key`, `asr.openai_realtime.model`: OpenAI Realtime transcription service configuration. When `openai_realtime` is selected, `server_vad` is enabled by default: the client continuously sends enhanced VPM PCM, and the server's `speech_started` / `speech_stopped` events determine user utterance boundaries and automatically commit the final text. For FunASR, `target_sample_rate` must remain `16000`; compatible services that do not support server-side VAD can set `asr.openai_realtime.server_vad.enabled` to `false` to fall back to local energy endpoint detection.
 - `llm.protocol`, `llm.base_url`, `llm.api_key`, `llm.model`: LLM service configuration. `protocol` can be `open_ai_chat` or `anthropic`; Anthropic-compatible services can control reasoning through `thinking.mode`.
@@ -164,7 +164,7 @@ After startup, the Agent runs as a resident process:
 1. It uses the firmware's native VPM/FlexKWS to listen for the wake word.
 2. Each wake-up interrupts the current voice output or music playback and resets the current conversation turn.
 3. It captures 16 kHz mono audio from the VPM ASR callback stream.
-4. It recognizes text with the configured ASR backend, optionally OpenAI-compatible HTTP ASR, OpenAI Realtime transcription, or native Xiaomi AIVS ASR.
+4. It recognizes text with the configured external ASR backend, either OpenAI-compatible HTTP ASR or OpenAI Realtime transcription.
 5. It passes the recognized text to the on-device Rig Agent and calls MCP, weather, music, and other tools as needed.
 6. It speaks the reply using the XiaoAI speaker system TTS command.
 

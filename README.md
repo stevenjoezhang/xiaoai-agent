@@ -7,7 +7,7 @@
 ![](https://forthebadge.com/images/badges/powered-by-electricity.svg)
 ![](https://forthebadge.com/images/badges/makes-people-smile.svg)
 
-运行在小爱音箱端侧的独立语音 Agent。仅需配置 ASR 与大模型服务 API，即可在音箱端侧完成唤醒、ASR、LLM 对话、工具调用和 TTS 回复。
+运行在小爱音箱端侧的独立语音 Agent。仅需配置外部 ASR 与大模型服务 API，即可在音箱端侧完成唤醒、ASR、LLM 对话、工具调用和 TTS 回复。
 与 Open-XiaoAI 和 [MiGPT](https://github.com/idootop/mi-gpt) 项目不同，XiaoAI Agent 无需部署专门的服务端运行 Agent，也不会与原生小爱同学抢麦、抢答或触发小米云端控制。
 目前仅在 Xiaomi 智能音箱 Pro（OH2P）固件 `1.62.2` 上测试成功，其他型号和固件版本需要自行适配并承担风险。
 
@@ -91,11 +91,9 @@ cp xiaoai-agent/agent.example.yaml xiaoai-agent/agent.yaml
 
 然后编辑 `xiaoai-agent/agent.yaml`：
 
-- `asr.provider`：ASR 后端，可选 `open_ai`、`openai_realtime` 或
-  `xiaomi_aivs`。`open_ai` 使用 OpenAI-compatible HTTP ASR 配置；
-  `openai_realtime` 使用 OpenAI Realtime transcription WebSocket 事件协议；
-  `xiaomi_aivs` 复用音箱原生 AIVS ASR，并默认发送 ASR-only
-  `Execution.RequestControl`，避免云端 NLP/TTS/设备控制副作用。
+- `asr.provider`：外部 ASR 后端，可选 `open_ai` 或 `openai_realtime`。
+  `open_ai` 使用 OpenAI-compatible HTTP ASR 配置；`openai_realtime` 使用
+  OpenAI Realtime transcription WebSocket 事件协议。
 - `asr.open_ai.base_url`、`asr.open_ai.api_key`、`asr.open_ai.model`：
   OpenAI-compatible ASR 服务配置
 - `asr.openai_realtime.base_url`、`asr.openai_realtime.api_key`、
@@ -186,8 +184,8 @@ Agent 启动后会常驻运行：
 1. 使用固件原生 VPM/FlexKWS 监听唤醒词。
 2. 每次唤醒都会中断当前语音输出或音乐播放，并重置当前对话轮次。
 3. 从 VPM ASR 回调流采集一段 16 kHz 单声道音频。
-4. 使用配置的 ASR 后端识别文本，可选 OpenAI-compatible HTTP ASR、OpenAI
-   Realtime transcription 或原生 Xiaomi AIVS ASR。
+4. 使用配置的外部 ASR 后端识别文本，可选 OpenAI-compatible HTTP ASR 或 OpenAI
+   Realtime transcription。
 5. 把识别文本交给端侧 Rig Agent，并按需调用 MCP、天气、音乐等工具。
 6. 使用小爱音箱系统 TTS 命令朗读回复。
 

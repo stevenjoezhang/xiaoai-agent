@@ -182,16 +182,14 @@ pub struct AsrConfig {
     pub provider: AsrProvider,
     pub open_ai: OpenAiAsrConfig,
     pub openai_realtime: OpenAiRealtimeAsrConfig,
-    pub xiaomi_aivs: XiaomiAivsAsrConfig,
 }
 
 impl Default for AsrConfig {
     fn default() -> Self {
         Self {
-            provider: AsrProvider::XiaomiAivs,
+            provider: AsrProvider::OpenAi,
             open_ai: OpenAiAsrConfig::default(),
             openai_realtime: OpenAiRealtimeAsrConfig::default(),
-            xiaomi_aivs: XiaomiAivsAsrConfig::default(),
         }
     }
 }
@@ -204,7 +202,6 @@ pub enum AsrProvider {
     OpenAi,
     #[serde(alias = "openai_realtime", alias = "open_ai_realtime")]
     OpenAiRealtime,
-    XiaomiAivs,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -277,36 +274,6 @@ impl Default for RealtimeServerVadConfig {
             prefix_padding_ms: 300,
             silence_duration_ms: 1_200,
             threshold: 0.5,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct XiaomiAivsAsrConfig {
-    pub sdk_lib: String,
-    pub token_path: PathBuf,
-    pub miio_dir: PathBuf,
-    pub engine_mode: i32,
-    pub connect_wait_ms: u64,
-    pub chunk_ms: u64,
-    pub wait_after_finish_ms: u64,
-    pub asr_only: bool,
-    pub allow_cloud_execution: bool,
-}
-
-impl Default for XiaomiAivsAsrConfig {
-    fn default() -> Self {
-        Self {
-            sdk_lib: "/usr/lib/libaivs_sdk.so".to_string(),
-            token_path: PathBuf::from("/data/TOKEN"),
-            miio_dir: PathBuf::from("/data/miio"),
-            engine_mode: 2,
-            connect_wait_ms: 1500,
-            chunk_ms: 100,
-            wait_after_finish_ms: 15000,
-            asr_only: true,
-            allow_cloud_execution: false,
         }
     }
 }
@@ -684,7 +651,22 @@ fn resolve_optional_path(root: &Path, path: &mut Option<PathBuf>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{AsrConfig, AsrProvider, LlmConfig, LlmProtocol, LlmThinkingMode, McpConfig};
+    use super::{
+        AppConfig, AsrConfig, AsrProvider, LlmConfig, LlmProtocol, LlmThinkingMode, McpConfig,
+    };
+
+    #[test]
+    fn example_uses_external_asr_by_default() {
+        let config: AppConfig =
+            serde_yaml::from_str(include_str!("../agent.example.yaml")).unwrap();
+        assert!(matches!(config.asr.provider, AsrProvider::OpenAi));
+    }
+
+    #[test]
+    fn rejects_removed_xiaomi_aivs_provider() {
+        let error = serde_yaml::from_str::<AsrConfig>("provider: xiaomi_aivs\n").unwrap_err();
+        assert!(error.to_string().contains("unknown variant"));
+    }
 
     #[test]
     fn parses_openai_realtime_provider_alias() {
