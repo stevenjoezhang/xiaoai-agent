@@ -172,6 +172,16 @@ After startup, the Agent runs as a resident process:
 5. It passes the recognized text to the on-device Rig Agent and calls MCP, weather, music, and other tools as needed.
 6. It speaks the reply using the XiaoAI speaker system TTS command.
 
+## Layered Design
+
+The project separates the boot entry point, firmware adaptation, and Agent runtime into three layers:
+
+1. `/data/init.sh` is the common boot entry point. The patched firmware invokes it through `rc.local`; the file itself only starts `start-agent.sh` and contains no model-specific or application logic.
+2. `xiaoai-agent/start-agent.sh` is the system and firmware adaptation layer. It manages native services, configures the PNS PCM mode, protects `speech.usock`, checks startup, rolls back failures, and restores the native speech path. Differences in process names, paths, or startup behavior should be adapted here first.
+3. The Rust program is the common Agent runtime. It implements the audio protocol, conversation state, ASR, LLM, MCP, music, TTS, and related features; orchestration of firmware services and the runtime environment belongs to the launcher in principle.
+
+The same Rust program can therefore potentially be reused when a target firmware provides compatible `mipns`/`speech.usock` audio interfaces, with most device differences handled by the launcher. A different underlying audio protocol still requires a corresponding Rust input adapter. This reuse scope currently covers XiaoAI speaker Linux firmware with compatible interfaces; it does not mean that the program runs unchanged on arbitrary systems.
+
 ## TODO
 
 - [ ] Support speaker button control
