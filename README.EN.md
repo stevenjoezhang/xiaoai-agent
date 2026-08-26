@@ -165,9 +165,9 @@ chmod +x /data/init.sh
 
 After startup, the Agent runs as a resident process:
 
-1. It uses the firmware's native VPM/FlexKWS to listen for the wake word.
+1. It uses the firmware's native `mipns-*` speech frontend to listen for the wake word.
 2. Each wake-up interrupts the current voice output or music playback and resets the current conversation turn.
-3. It captures 16 kHz mono audio from the VPM ASR callback stream.
+3. It receives 16 kHz mono PCM audio through the native `speech.usock` protocol.
 4. It recognizes text with the configured external ASR backend, either OpenAI-compatible HTTP ASR or OpenAI Realtime transcription.
 5. It passes the recognized text to the on-device Rig Agent and calls MCP, weather, music, and other tools as needed.
 6. It speaks the reply using the XiaoAI speaker system TTS command.

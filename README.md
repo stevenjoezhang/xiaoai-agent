@@ -185,9 +185,9 @@ chmod +x /data/init.sh
 
 Agent 启动后会常驻运行：
 
-1. 使用固件原生 VPM/FlexKWS 监听唤醒词。
+1. 使用固件原生 `mipns-*` 语音前端监听唤醒词。
 2. 每次唤醒都会中断当前语音输出或音乐播放，并重置当前对话轮次。
-3. 从 VPM ASR 回调流采集一段 16 kHz 单声道音频。
+3. 通过原生 `speech.usock` 协议接收 16 kHz 单声道 PCM 音频。
 4. 使用配置的外部 ASR 后端识别文本，可选 OpenAI-compatible HTTP ASR 或 OpenAI
    Realtime transcription。
 5. 把识别文本交给端侧 Rig Agent，并按需调用 MCP、天气、音乐等工具。

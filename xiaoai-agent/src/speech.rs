@@ -11,7 +11,6 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 const DEFAULT_SOCKET_PATH: &str = "/tmp/mico_aivs_lab/usock/speech.usock";
-const NATIVE_SOCKET_FILE_NAME: &str = "speech.native.usock";
 const NATIVE_FULL_DUPLEX_PATH: &str = "/data/mipns/dialog_continuous";
 const DISABLED_FULL_DUPLEX_PATH: &str = "/data/mipns/dialog_continuous.xiaoai-agent-disabled";
 const MAX_DATAGRAM_SIZE: usize = 256 * 1024;
@@ -125,8 +124,8 @@ pub struct SpeechService {
 impl SpeechService {
     pub async fn bind(socket_path: impl Into<PathBuf>) -> anyhow::Result<Self> {
         let socket_path = socket_path.into();
+        ensure_native_speech_server_stopped(&socket_path)?;
         disable_native_full_duplex(&socket_path)?;
-        isolate_native_aivs_speech_socket(&socket_path)?;
         prepare_socket_path(&socket_path)?;
         let socket = UnixDatagram::bind(&socket_path)
             .with_context(|| format!("bind speech socket {}", socket_path.display()))?;
@@ -558,16 +557,15 @@ fn disable_native_full_duplex(socket_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn isolate_native_aivs_speech_socket(socket_path: &Path) -> anyhow::Result<()> {
+fn ensure_native_speech_server_stopped(socket_path: &Path) -> anyhow::Result<()> {
     if socket_path != Path::new(DEFAULT_SOCKET_PATH) || !Path::new("/proc").is_dir() {
         return Ok(());
     }
-    let mut pids = Vec::new();
     for entry in fs::read_dir("/proc").context("read /proc")? {
         let entry = entry?;
-        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
+        if entry.file_name().to_string_lossy().parse::<u32>().is_err() {
             continue;
-        };
+        }
         let Ok(cmdline) = fs::read(entry.path().join("cmdline")) else {
             continue;
         };
@@ -576,43 +574,9 @@ fn isolate_native_aivs_speech_socket(socket_path: &Path) -> anyhow::Result<()> {
             .file_name()
             .is_some_and(|name| name == "mico_aivs_lab")
         {
-            pids.push(pid);
+            bail!("mico_aivs_lab must be stopped before binding the system speech socket; use start-agent.sh");
         }
     }
-    if pids.is_empty() {
-        return Ok(());
-    }
-
-    let native_path = socket_path.with_file_name(NATIVE_SOCKET_FILE_NAME);
-    if native_path.exists() {
-        // A previous Agent instance already isolated the live native socket.
-        // The standard path can only be a stale Agent socket at this point.
-        if socket_path.exists() {
-            fs::remove_file(socket_path)
-                .with_context(|| format!("remove stale speech socket {}", socket_path.display()))?;
-        }
-    } else if socket_path.exists() {
-        fs::rename(socket_path, &native_path).with_context(|| {
-            format!(
-                "isolate native AIVS speech socket {} as {}",
-                socket_path.display(),
-                native_path.display()
-            )
-        })?;
-    } else {
-        bail!(
-            "mico_aivs_lab is running (PID {}) but its speech socket is not ready",
-            pids.iter()
-                .map(u32::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
-        );
-    }
-
-    info!(
-        native_socket = %native_path.display(),
-        "kept native AIVS common services and isolated its speech socket"
-    );
     Ok(())
 }
 

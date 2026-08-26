@@ -25,11 +25,14 @@ boot. This makes the socket receive PCM rather than Opus without changing the
 rootfs. Do not bypass `start-agent.sh` or restore `-r opus32` unless the agent
 also gains a packet-preserving Opus decoder.
 
-`mico_aivs_lab` must remain running because its `common.usock` services are used
-by the system TTS path. The agent isolates only its speech endpoint by moving the
-native socket to `speech.native.usock`, then takes over the standard speech
-socket before `mipns` reconnects. Do not stop the complete service or remove the
-socket-isolation logic merely because the agent no longer uses native AIVS ASR.
+`mico_aivs_lab` must run during normal operation because its `common.usock`
+services are used by the system TTS path. The launcher briefly stops it while
+installing the takeover, lets the agent bind the standard speech path, and
+self-bind-mounts that socket before restarting `mico_aivs_lab`. The mount point
+makes native attempts to unlink the Agent socket fail with `EBUSY`; native
+speech binding then fails while `common.usock` starts normally. Keep this
+fail-closed protection in place whenever the real microphone frontend is
+running.
 
 The native `/data/mipns/dialog_continuous` mode is deliberately disabled. After
 each answer, the agent finishes the current native dialog and requests the next
@@ -104,7 +107,8 @@ the toolchain assumptions.
   config.
 - Do not reconnect `mipns` to the native AIVS speech socket; that can bring back
   double answers and cloud-side control actions.
-- Do not stop `mico_aivs_lab` as part of normal Agent startup; doing so also
-  removes services required by system TTS.
+- Stop `mico_aivs_lab` only inside the launcher's coordinated transition. The
+  launcher must protect the Agent socket before restarting it, and must restore
+  native speech before leaving `mipns` running without the Agent.
 - When testing `speech.usock` protocol changes, prefer `xiaoai_asr_probe` first,
   then wire the validated behavior into the main agent.
