@@ -69,7 +69,6 @@ llm:
   model: gpt-5.4-mini
   timeout_s: 10
   max_tokens: 300
-  retries: 1
   temperature: 0.5
   thinking:
     # auto, disabled, or enabled. Anthropic enabled mode also uses budget_tokens.

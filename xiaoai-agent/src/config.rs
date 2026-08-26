@@ -255,7 +255,6 @@ pub struct LlmConfig {
     pub model: String,
     pub timeout_s: f64,
     pub max_tokens: u64,
-    pub retries: u32,
     pub temperature: f64,
     pub thinking: LlmThinkingConfig,
 }
@@ -269,7 +268,6 @@ impl Default for LlmConfig {
             model: "gpt-5.4-mini".to_string(),
             timeout_s: 5.0,
             max_tokens: 300,
-            retries: 1,
             temperature: 0.5,
             thinking: LlmThinkingConfig::default(),
         }

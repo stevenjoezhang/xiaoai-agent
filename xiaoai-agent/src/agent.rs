@@ -124,32 +124,7 @@ impl AgentRuntime {
         }
 
         let prompt = self.prompt_with_history(message).await;
-        let attempts = self.config.llm.retries.saturating_add(1);
-        let mut last_error = None;
-        let mut text = None;
-        for attempt in 1..=attempts {
-            match self.prompt_once(prompt.clone()).await {
-                Ok(reply) => {
-                    text = Some(reply);
-                    break;
-                }
-                Err(err) => last_error = Some(err),
-            }
-
-            if attempt < attempts {
-                if let Some(err) = &last_error {
-                    warn!("LLM attempt {attempt}/{attempts} failed: {err:?}");
-                }
-            } else if let Some(err) = last_error {
-                return Err(err);
-            } else {
-                return Err(anyhow::anyhow!("LLM request failed without attempts"));
-            }
-        }
-        let Some(text) = text else {
-            return Err(last_error
-                .unwrap_or_else(|| anyhow::anyhow!("LLM request failed without attempts")));
-        };
+        let text = self.prompt_once(prompt).await?;
 
         let control = self.control.lock().await;
         self.push_history(message, &text).await;
