@@ -8,6 +8,7 @@ AGENT_CONFIG=${XIAOAI_AGENT_CONFIG:-$AGENT_HOME/agent.yaml}
 AGENT_LOG=${XIAOAI_AGENT_LOG:-$AGENT_HOME/xiaoai-agent.log}
 RUNTIME_DIR=${XIAOAI_RUNTIME_DIR:-/tmp/xiaoai-agent}
 PID_FILE=$RUNTIME_DIR/xiaoai-agent.pid
+WATCHDOG_PID_FILE=$RUNTIME_DIR/watchdog.pid
 LOCK_DIR=$RUNTIME_DIR/launcher.lock
 PATCHED_PNS=$RUNTIME_DIR/pns
 PNS_INIT=${XIAOAI_PNS_INIT:-/etc/init.d/pns}
@@ -19,7 +20,13 @@ COMMON_SOCKET=$SPEECH_DIR/common.usock
 FULL_DUPLEX=${XIAOAI_FULL_DUPLEX:-/data/mipns/dialog_continuous}
 DISABLED_FULL_DUPLEX=${XIAOAI_DISABLED_FULL_DUPLEX:-/data/mipns/dialog_continuous.xiaoai-agent-disabled}
 START_TIMEOUT=${XIAOAI_START_TIMEOUT:-30}
+WATCHDOG_INTERVAL=${XIAOAI_WATCHDOG_INTERVAL:-5}
+PNS_PROCESS_NAMES="mipns-xiaomi mipns-sai mipns-gmems mipns-siot mipns-aispeech mipns-horizon mipns-nuance"
 RUST_LOG=${RUST_LOG:-info}
+case "$0" in
+    /*) LAUNCHER=$0 ;;
+    *) LAUNCHER=$(pwd)/$0 ;;
+esac
 
 log() {
     printf '%s\n' "xiaoai-agent launcher: $*"
@@ -36,9 +43,57 @@ pid_is_running() {
     [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
+socket_inode() {
+    # BusyBox on the tested firmware does not provide stat(1).
+    # shellcheck disable=SC2012
+    ls -id "$SPEECH_SOCKET" 2>/dev/null | awk '{ print $1 }'
+}
+
 pns_is_overlaid() {
     [ -r "$PROC_MOUNTS" ] || return 1
     awk -v target="$PNS_INIT" '$2 == target { found = 1 } END { exit !found }' "$PROC_MOUNTS"
+}
+
+pns_pids() {
+    for name in $PNS_PROCESS_NAMES; do
+        pidof "$name" 2>/dev/null || true
+    done
+}
+
+stop_pns() {
+    "$PNS_INIT" stop >/dev/null 2>&1 || true
+    for name in $PNS_PROCESS_NAMES; do
+        killall "$name" 2>/dev/null || true
+    done
+    i=0
+    while [ "$i" -lt 5 ]; do
+        [ -z "$(pns_pids)" ] && return 0
+        sleep 1
+        i=$((i + 1))
+    done
+    for name in $PNS_PROCESS_NAMES; do
+        killall -9 "$name" 2>/dev/null || true
+    done
+    [ -z "$(pns_pids)" ]
+}
+
+wait_for_pcm_frontend() {
+    i=0
+    while [ "$i" -lt "$START_TIMEOUT" ]; do
+        pids=$(pns_pids)
+        if [ -n "$pids" ]; then
+            for pid in $pids; do
+                if tr '\000' ' ' <"/proc/$pid/cmdline" | grep -q 'opus32'; then
+                    fail "pns started an Opus frontend instead of PCM"
+                    return 1
+                fi
+            done
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+    fail "pns did not start a speech frontend after ${START_TIMEOUT}s"
 }
 
 wait_for_native_services() {
@@ -81,6 +136,41 @@ stop_agent_process() {
     rm -f "$PID_FILE"
 }
 
+stop_watchdog() {
+    watchdog_pid=$(cat "$WATCHDOG_PID_FILE" 2>/dev/null || true)
+    if [ -n "$watchdog_pid" ] && [ "$watchdog_pid" != "$$" ]; then
+        kill "$watchdog_pid" 2>/dev/null || true
+    fi
+    rm -f "$WATCHDOG_PID_FILE"
+}
+
+start_watchdog() {
+    agent_pid=$1
+    expected_inode=$(socket_inode) || return 1
+    [ -n "$expected_inode" ] || return 1
+    (
+        trap '' HUP
+        trap 'exit 0' INT TERM
+        while sleep "$WATCHDOG_INTERVAL"; do
+            reason=
+            if ! kill -0 "$agent_pid" 2>/dev/null; then
+                reason="agent process exited"
+            else
+                current_inode=$(socket_inode || true)
+                if [ "$current_inode" != "$expected_inode" ]; then
+                    reason="speech.usock was replaced"
+                fi
+            fi
+            [ -n "$reason" ] || continue
+            log "$reason; restarting the runtime takeover"
+            rm -f "$WATCHDOG_PID_FILE"
+            "$LAUNCHER" restart >>"$AGENT_HOME/xiaoai-agent-launcher.log" 2>&1
+            exit
+        done
+    ) </dev/null >>"$AGENT_HOME/xiaoai-agent-launcher.log" 2>&1 &
+    printf '%s\n' "$!" >"$WATCHDOG_PID_FILE"
+}
+
 restore_native_files() {
     if pns_is_overlaid; then
         umount "$PNS_INIT" || return 1
@@ -96,7 +186,8 @@ restore_native_files() {
 }
 
 restore_native_frontend() {
-    "$PNS_INIT" stop >/dev/null 2>&1 || true
+    stop_pns || true
+    stop_watchdog
     stop_agent_process
     restore_native_files || fail "failed to restore native speech files"
     "$PNS_INIT" start >/dev/null 2>&1 || fail "failed to restart native pns"
@@ -114,7 +205,7 @@ patch_pns_runtime() {
 
 rollback_start() {
     log "startup failed; restoring the native speech frontend"
-    "$PNS_INIT" stop >/dev/null 2>&1 || true
+    stop_pns || true
     stop_agent_process
     restore_native_files || true
     "$PNS_INIT" start >/dev/null 2>&1 || true
@@ -152,7 +243,7 @@ start_agent() {
     fi
 
     wait_for_native_services || return 1
-    "$PNS_INIT" stop >/dev/null 2>&1 || {
+    stop_pns || {
         fail "failed to stop pns"
         return 1
     }
@@ -175,6 +266,15 @@ start_agent() {
     if ! "$PNS_INIT" start >/dev/null 2>&1; then
         rollback_start
         fail "failed to start pns with the PCM runtime override"
+        return 1
+    fi
+    if ! wait_for_pcm_frontend; then
+        rollback_start
+        return 1
+    fi
+    if ! start_watchdog "$agent_pid"; then
+        rollback_start
+        fail "failed to start the speech socket watchdog"
         return 1
     fi
 
