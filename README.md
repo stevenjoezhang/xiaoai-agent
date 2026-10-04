@@ -197,11 +197,25 @@ Agent 启动后会常驻运行：
 
 项目将开机入口、固件适配和 Agent 运行逻辑分为三层：
 
-1. `/data/init.sh` 是统一的开机入口。补丁固件通过 `rc.local` 调用它，它本身只负责启动 `start-agent.sh`，不包含型号或业务逻辑。
+1. `/data/init.sh` 是统一的开机入口。补丁固件通过 `rc.local` 调用它；本项目提供的示例只负责启动 `start-agent.sh`，不包含型号或业务逻辑。
 2. `xiaoai-agent/start-agent.sh` 是系统和固件适配层，负责管理原生服务、设置 PNS PCM 模式、保护 `speech.usock`，以及启动检查、故障回滚和原生链路恢复。不同固件的进程名称、路径或启动方式存在差异时，应优先在这一层适配。
 3. Rust 主程序是统一的 Agent 运行层，负责音频协议、对话状态、ASR、LLM、MCP、音乐和 TTS 等功能；固件服务和运行环境的编排原则上由启动脚本承担。
 
 因此，只要目标固件提供兼容的 `mipns`/`speech.usock` 音频接口，同一套 Rust 程序就有机会直接复用，设备差异主要由启动脚本吸收。如果底层音频协议本身不同，则仍需为 Rust 主程序增加相应的输入适配。目前这种复用范围指兼容接口的小爱音箱 Linux 固件，并不表示程序可以在任意系统上原样运行。
+
+## 停用与卸载
+
+本项目正在快速开发迭代，部分功能可能不稳定。语音链路接管由启动脚本在运行时完成，因此停用或卸载 `xiaoai-agent`、恢复原生小爱语音功能无需重新刷机。通过 SSH 登录音箱后执行：
+
+```sh
+/data/open-xiaoai/start-agent.sh stop
+```
+
+停止成功后，脚本会解除接管并重新启动原生语音服务。若要在重启后继续使用原生小爱，请删除或注释 `/data/init.sh` 中的 `exec /data/open-xiaoai/start-agent.sh start`，保留其他自定义启动内容。需要重新启用时，执行 `/data/open-xiaoai/start-agent.sh start`，并按需恢复开机自启。
+
+如需卸载，先完成上述停止和关闭自启操作，再删除 `/data/open-xiaoai/` 中的 `xiaoai-agent` 和 `start-agent.sh`；`agent.yaml` 与日志可按需保留或删除，不必删除整个目录中的其他程序。
+
+本项目使用的补丁固件提供 SSH 和 `/data/init.sh` 通用开机入口，也可以用于启动其他自定义程序，并不要求运行 `xiaoai-agent`。停用或卸载 Agent 后，这些能力和禁用 OTA 等固件补丁仍然保留。
 
 ## TODO
 

@@ -176,11 +176,25 @@ After startup, the Agent runs as a resident process:
 
 The project separates the boot entry point, firmware adaptation, and Agent runtime into three layers:
 
-1. `/data/init.sh` is the common boot entry point. The patched firmware invokes it through `rc.local`; the file itself only starts `start-agent.sh` and contains no model-specific or application logic.
+1. `/data/init.sh` is the common boot entry point. The patched firmware invokes it through `rc.local`; the example provided by this project only starts `start-agent.sh` and contains no model-specific or application logic.
 2. `xiaoai-agent/start-agent.sh` is the system and firmware adaptation layer. It manages native services, configures the PNS PCM mode, protects `speech.usock`, checks startup, rolls back failures, and restores the native speech path. Differences in process names, paths, or startup behavior should be adapted here first.
 3. The Rust program is the common Agent runtime. It implements the audio protocol, conversation state, ASR, LLM, MCP, music, TTS, and related features; orchestration of firmware services and the runtime environment belongs to the launcher in principle.
 
 The same Rust program can therefore potentially be reused when a target firmware provides compatible `mipns`/`speech.usock` audio interfaces, with most device differences handled by the launcher. A different underlying audio protocol still requires a corresponding Rust input adapter. This reuse scope currently covers XiaoAI speaker Linux firmware with compatible interfaces; it does not mean that the program runs unchanged on arbitrary systems.
+
+## Disable or Uninstall
+
+This project is under rapid development, and some features may be unstable. The launcher takes over the speech path at runtime, so disabling or uninstalling `xiaoai-agent` and restoring native XiaoAI voice functionality does not require reflashing. Log into the speaker through SSH and run:
+
+```sh
+/data/open-xiaoai/start-agent.sh stop
+```
+
+On a successful stop, the launcher removes the takeover and restarts the native speech services. To keep using native XiaoAI after a reboot, remove or comment out `exec /data/open-xiaoai/start-agent.sh start` in `/data/init.sh`, preserving any other custom startup commands. To re-enable the Agent, run `/data/open-xiaoai/start-agent.sh start` and restore automatic startup if needed.
+
+To uninstall, first stop the Agent and disable automatic startup as described above, then delete `xiaoai-agent` and `start-agent.sh` from `/data/open-xiaoai/`. Keep or delete `agent.yaml` and the logs as needed; other programs in that directory do not need to be removed.
+
+The patched firmware provides SSH and the general-purpose `/data/init.sh` boot hook. It can also start other custom programs and does not require `xiaoai-agent` to run. These capabilities and firmware patches such as disabling OTA remain in place after the Agent is disabled or uninstalled.
 
 ## TODO
 
