@@ -86,7 +86,12 @@ impl McpConnections {
             return Ok("音乐指令已提交给 Songloft 插件。".to_string());
         }
         if output.trim().is_empty() {
-            if structured.is_some() {
+            if let Some(message) = structured
+                .and_then(|value| value.get("message"))
+                .and_then(serde_json::Value::as_str)
+            {
+                Ok(message.to_string())
+            } else if structured.is_some() {
                 Ok(structured.unwrap().to_string())
             } else {
                 Ok("Songloft 已收到音乐指令。".to_string())
