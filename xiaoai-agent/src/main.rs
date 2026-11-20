@@ -37,7 +37,7 @@ use crate::device::Device;
 use crate::speech::{SpeechHandle, SpeechService, SpeechServiceEvent, SpeechTurn};
 
 const ASR_SERVICE_ERROR_PROMPT: &str = "抱歉，语音识别服务遇到问题，请稍后重试";
-const LLM_SERVICE_ERROR_PROMPT: &str = "抱歉，大模型服务遇到问题，请稍后重试";
+const LLM_SERVICE_ERROR_PROMPT: &str = "抱歉，服务暂时不可用，请稍后重试";
 
 #[derive(Debug, Parser)]
 #[command(name = "xiaoai-agent")]
