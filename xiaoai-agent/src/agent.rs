@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Context;
 use rig_core::client::CompletionClient;
@@ -101,13 +102,39 @@ impl AgentRuntime {
         }
 
         if is_music_request(message) {
-            let text = self.mcp.call_songloft_command(message).await?;
-            self.push_history(message, &text).await;
-            return Ok(AgentTurnResult {
-                text,
-                should_end: false,
-                end_reason: String::new(),
-            });
+            let started = Instant::now();
+            info!(message = %message, "MUSIC_DIRECT start");
+
+            return match self.mcp.call_songloft_command(message).await {
+                Ok(_result) => {
+                    info!(
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        "MUSIC_DIRECT success"
+                    );
+                    // Songloft's submitted/status text is not a playback confirmation.
+                    // Keep successful music commands silent instead of speaking MCP chatter.
+                    self.push_history(message, "").await;
+                    Ok(AgentTurnResult {
+                        text: String::new(),
+                        should_end: false,
+                        end_reason: String::new(),
+                    })
+                }
+                Err(err) => {
+                    warn!(
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        error = %err,
+                        "MUSIC_DIRECT failed"
+                    );
+                    let text = "音乐操作失败，请重试".to_string();
+                    self.push_history(message, &text).await;
+                    Ok(AgentTurnResult {
+                        text,
+                        should_end: false,
+                        end_reason: String::new(),
+                    })
+                }
+            };
         }
 
         let prompt = self.prompt_with_history(message).await;
