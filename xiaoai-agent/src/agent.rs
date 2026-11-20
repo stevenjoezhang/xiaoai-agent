@@ -57,7 +57,7 @@ pub struct AgentControl {
 pub struct AgentRuntime {
     config: Arc<AppConfig>,
     tool_server: ToolServerHandle,
-    mcp: McpConnections,
+    _mcp: McpConnections,
     songloft: Option<SongloftClient>,
     history: Mutex<Vec<(String, String)>>,
     control: Arc<Mutex<AgentControl>>,
@@ -95,7 +95,7 @@ impl AgentRuntime {
         Ok(Self {
             config,
             tool_server,
-            mcp,
+            _mcp: mcp,
             songloft,
             history: Mutex::new(Vec::new()),
             control,

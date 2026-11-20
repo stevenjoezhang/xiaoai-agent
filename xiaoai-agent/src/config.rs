@@ -619,7 +619,7 @@ mod tests {
     #[test]
     fn parses_embedded_songloft_settings() {
         let config: SongloftConfig = serde_yaml::from_str(
-            "enabled: true\\nbase_url: http://192.168.10.1:58091\\nauth:\\n  mode: permanent_token\\n  token: test-token\\n",
+            "enabled: true\nbase_url: http://192.168.10.1:58091\nauth:\n  mode: permanent_token\n  token: test-token\n",
         )
         .unwrap();
         assert!(config.enabled);
