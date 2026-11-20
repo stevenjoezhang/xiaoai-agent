@@ -54,10 +54,32 @@ jobs:
         run: cargo install cross --locked
       - name: Build release binary
         run: cross build --locked --release --target armv7-unknown-linux-musleabihf
-      - name: Upload ARMv7 binary
+      - name: Assemble ARMv7 deployment package
+        run: |
+          mkdir -p package/xiaoai-agent-songloft/logs
+          cp target/armv7-unknown-linux-musleabihf/release/xiaoai-agent package/xiaoai-agent-songloft/
+          cp agent.example.yaml package/xiaoai-agent-songloft/agent.example.yaml
+          cat > package/xiaoai-agent-songloft/start.sh <<'EOF'
+          #!/bin/sh
+          BASE="/data/xiaoai-agent-songloft"
+          mkdir -p "$BASE/logs"
+          chmod 700 "$BASE"
+          chmod 600 "$BASE/agent.yaml" 2>/dev/null || true
+          chmod +x "$BASE/xiaoai-agent"
+          exec "$BASE/xiaoai-agent" --config "$BASE/agent.yaml"
+          EOF
+          chmod +x package/xiaoai-agent-songloft/start.sh
+          cat > package/xiaoai-agent-songloft/README-DEPLOY.txt <<'EOF'
+          Install this package into /data/xiaoai-agent-songloft.
+          Copy agent.example.yaml to agent.yaml and fill in ASR, LLM and Songloft credentials.
+          Start with ./start.sh or configure your init supervisor to execute it.
+          Daily logs: logs/xiaoai-agent-YYYY-MM-DD.log. Files at least 5 days old are deleted.
+          Songloft password-mode tokens are saved to songloft-auth.json.
+          EOF
+      - name: Upload ARMv7 deployment package
         uses: actions/upload-artifact@v4
         with:
-          name: xiaoai-agent-armv7-musleabihf
-          path: xiaoai-agent/target/armv7-unknown-linux-musleabihf/release/xiaoai-agent
+          name: xiaoai-agent-songloft-armv7
+          path: package/xiaoai-agent-songloft
           if-no-files-found: error
           retention-days: 14
