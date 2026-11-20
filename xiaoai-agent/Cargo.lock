@@ -3621,6 +3621,7 @@ dependencies = [
  "chrono-tz",
  "clap",
  "futures",
+ "rand",
  "reqwest",
  "rig-core",
  "rmcp",
