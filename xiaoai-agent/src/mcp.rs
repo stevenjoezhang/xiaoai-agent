@@ -260,7 +260,7 @@ impl McpToolHandler {
         let has_songloft_command = tools.iter().any(|tool| tool.name == "songloft_command");
         let count = service
             .service()
-            .replace_tools(tools, peer)
+            .replace_tools(tools, peer.clone())
             .await?;
         if let Some(slot) = &service.service().songloft_peer {
             if has_songloft_command {
