@@ -257,12 +257,13 @@ impl McpToolHandler {
             .map_err(|err| McpClientError::ConnectionError(err.to_string()))?;
         let peer = service.peer().clone();
         let tools = peer.list_all_tools().await?;
+        let has_songloft_command = tools.iter().any(|tool| tool.name == "songloft_command");
         let count = service
             .service()
             .replace_tools(tools, peer)
             .await?;
         if let Some(slot) = &service.service().songloft_peer {
-            if tools.iter().any(|tool| tool.name == "songloft_command") {
+            if has_songloft_command {
                 *slot.write().await = Some(peer);
                 info!("Songloft direct command endpoint is ready");
             } else {
