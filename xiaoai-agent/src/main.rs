@@ -376,7 +376,7 @@ async fn run_session(
         }
         info!("USER_ASR text={command}");
 
-        let reply = match state.agent.run_turn(command).await {
+        let reply = match state.agent.run_turn(&text).await {
             Ok(reply) => reply,
             Err(err) => {
                 speak_service_error(&state.device, led, LLM_SERVICE_ERROR_PROMPT).await;
