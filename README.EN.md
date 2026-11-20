@@ -95,7 +95,7 @@ Then edit `xiaoai-agent/agent.yaml`:
 - `asr.openai_realtime.base_url`, `asr.openai_realtime.api_key`, `asr.openai_realtime.model`: OpenAI Realtime transcription service configuration. When `openai_realtime` is selected, `server_vad` is enabled by default: the client continuously sends enhanced VPM PCM, and the server's `speech_started` / `speech_stopped` events determine user utterance boundaries and automatically commit the final text. For FunASR, `target_sample_rate` must remain `16000`; compatible services that do not support server-side VAD can set `asr.openai_realtime.server_vad.enabled` to `false` to fall back to local energy endpoint detection.
 - `llm.protocol`, `llm.base_url`, `llm.api_key`, `llm.model`: LLM service configuration. `protocol` can be `open_ai_chat` or `anthropic`; Anthropic-compatible services can control reasoning through `thinking.mode`.
 - `mcp.servers`: generic MCP server list. Each server can independently configure URL, token, timeout, and tool allowlist.
-- `mcp.servers`: connect external capabilities such as Songloft music and smart home control through MCP. Enable the `songloft_command` tool on the Songloft server.
+- `mcp.servers`: connect external capabilities such as Songloft music and smart home control through MCP. A Songloft example is included in `agent.example.yaml`; enable `songloft` and keep the `songloft_command` tool.
 - `runtime` / `capture`: wake word and recording parameters. Usually start with the example values.
 - `airplay`: AirPlay audio output configuration. Disabled by default.
 
