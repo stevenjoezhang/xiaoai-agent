@@ -77,8 +77,26 @@ impl McpConnections {
         let output = result.content.iter()
             .filter_map(|block| block.raw.as_text().map(|text| text.text.as_str()))
             .collect::<Vec<_>>().join(" ");
+        let structured = result.structured_content.as_ref();
+        if structured.and_then(|value| value.get("submitted")).and_then(serde_json::Value::as_bool) == Some(true)
+            || serde_json::from_str::<serde_json::Value>(&output).ok()
+                .and_then(|value| value.get("submitted").and_then(serde_json::Value::as_bool))
+                == Some(true)
+        {
+            return Ok("音乐指令已提交给 Songloft 插件。".to_string());
+        }
         if output.trim().is_empty() {
-            Ok("音乐请求已提交给 Songloft。".to_string())
+            if structured.is_some() {
+                Ok(structured.unwrap().to_string())
+            } else {
+                Ok("Songloft 已收到音乐指令。".to_string())
+            }
+        } else if let Ok(value) = serde_json::from_str::<serde_json::Value>(&output) {
+            if let Some(message) = value.get("message").and_then(serde_json::Value::as_str) {
+                Ok(message.to_string())
+            } else {
+                Ok(output)
+            }
         } else {
             Ok(output)
         }
