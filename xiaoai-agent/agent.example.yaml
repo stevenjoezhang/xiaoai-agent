@@ -100,32 +100,6 @@ mcp:
     # Empty means expose every tool from this server.
     tools: []
 
-music:
-  enabled: false
-  provider: navidrome
-  interruption:
-    # pause, duck, or none. duck uses device.duck_audio_command / unduck_audio_command.
-    mode: pause
-  netease:
-    # External Netease API service URL. The speaker does not start this service locally.
-    api_base_url: http://127.0.0.1:3300
-    login_mode: captcha
-    account: ""
-    phone: ""
-    password: ""
-    md5_password: ""
-    # Optional read-only seed cookie. Login refreshes are kept in memory and are not written back.
-    cookie_file: null
-    default_level: standard
-    timeout_s: 5
-    login_on_start: true
-  navidrome:
-    base_url: http://127.0.0.1:4533
-    username: ""
-    password: ""
-    api_version: 1.16.1
-    timeout_s: 5
-
 airplay:
   enabled: false
   name: XiaoAI AirPlay
