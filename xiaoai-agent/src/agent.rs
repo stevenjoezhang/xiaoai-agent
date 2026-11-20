@@ -56,7 +56,7 @@ pub struct AgentControl {
 pub struct AgentRuntime {
     config: Arc<AppConfig>,
     tool_server: ToolServerHandle,
-    _mcp: McpConnections,
+    mcp: McpConnections,
     history: Mutex<Vec<(String, String)>>,
     control: Arc<Mutex<AgentControl>>,
 }
@@ -88,7 +88,7 @@ impl AgentRuntime {
         Ok(Self {
             config,
             tool_server,
-            _mcp: mcp,
+            mcp,
             history: Mutex::new(Vec::new()),
             control,
         })
@@ -99,6 +99,16 @@ impl AgentRuntime {
             let mut control = self.control.lock().await;
             control.should_end = false;
             control.end_reason.clear();
+        }
+
+        if is_music_request(message) {
+            let text = self.mcp.call_songloft_command(message).await?;
+            self.push_history(message, &text).await;
+            return Ok(AgentTurnResult {
+                text,
+                should_end: false,
+                end_reason: String::new(),
+            });
         }
 
         let prompt = self.prompt_with_history(message).await;
@@ -273,5 +283,42 @@ mod tests {
         let params = openai_thinking_params(&LlmThinkingMode::Disabled);
         assert_eq!(params["enable_thinking"], false);
         assert_eq!(params["chat_template_kwargs"]["enable_thinking"], false);
+    }
+}
+
+fn is_music_request(message: &str) -> bool {
+    let text = message.trim();
+    if text.is_empty() {
+        return false;
+    }
+    let exclusions = ["视频", "电影", "电视剧", "短片", "录像"];
+    if exclusions.iter().any(|word| text.contains(word)) {
+        return false;
+    }
+    let music_terms = [
+        "音乐", "歌曲", "歌单", "歌手", "专辑", "这首歌", "那首歌", "听歌",
+        "下一首", "上一首", "切歌", "换首", "换一首", "单曲循环", "随机播放",
+        "随机来", "播放模式", "循环播放", "暂停播放", "继续播放", "停止播放",
+        "播放", "放一首", "来一首", "唱一首", "听一首", "随便听", "放点歌",
+        "搜歌", "搜索歌曲", "收藏歌曲", "收藏这首", "音量调到", "调高音量", "调低音量",
+    ];
+    music_terms.iter().any(|word| text.contains(word))
+}
+
+#[cfg(test)]
+mod music_routing_tests {
+    use super::is_music_request;
+
+    #[test]
+    fn routes_music_commands_directly() {
+        for input in ["播放周杰伦的七里香", "下一首", "暂停播放", "搜索歌曲晴天", "播放我的歌单"] {
+            assert!(is_music_request(input), "expected music route for: {input}");
+        }
+    }
+
+    #[test]
+    fn does_not_route_video_requests_as_music() {
+        assert!(!is_music_request("播放这个视频"));
+        assert!(!is_music_request("今天天气怎么样"));
     }
 }
