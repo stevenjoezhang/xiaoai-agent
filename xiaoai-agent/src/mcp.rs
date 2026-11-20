@@ -12,7 +12,7 @@ use rmcp::transport::{IntoTransport, StreamableHttpClientTransport};
 use rmcp::ServiceExt;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 use tracing::{info, warn};
 
 use crate::config::{AppConfig, McpServerConfig};
@@ -58,6 +58,7 @@ impl McpConnections {
 
         Self { supervisors }
     }
+
 }
 
 impl Drop for McpConnections {
@@ -69,7 +70,10 @@ impl Drop for McpConnections {
 }
 
 fn configured_servers(config: &AppConfig) -> Vec<McpServerConfig> {
+    // Songloft command forwarding is built into xiaoai-agent now. Ignore any
+    // legacy Songloft MCP server entry so the standalone process is not started.
     let mut servers = config.mcp.servers.clone();
+    servers.retain(|server| server.name != "songloft");
     let legacy = &config.mcp.home_assistant;
     if legacy.enabled && !servers.iter().any(|server| server.name == "home_assistant") {
         servers.push(McpServerConfig {
@@ -221,10 +225,11 @@ impl McpToolHandler {
         let service = ServiceExt::serve(self, transport)
             .await
             .map_err(|err| McpClientError::ConnectionError(err.to_string()))?;
-        let tools = service.peer().list_all_tools().await?;
+        let peer = service.peer().clone();
+        let tools = peer.list_all_tools().await?;
         let count = service
             .service()
-            .replace_tools(tools, service.peer().clone())
+            .replace_tools(tools, peer.clone())
             .await?;
         info!(server = %service.service().server_name, tool_count = count, "registered MCP tools");
         Ok(service)

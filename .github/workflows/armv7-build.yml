@@ -1,0 +1,85 @@
+name: ARMv7 build
+
+on:
+  push:
+    branches:
+      - feature/music-mcp-routing
+    paths:
+      - "xiaoai-agent/**"
+      - ".github/workflows/armv7-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: armv7-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Host tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: xiaoai-agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: xiaoai-agent
+      - name: Run tests
+        run: cargo test --locked
+
+  build-armv7:
+    name: Build ARMv7 musl
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: xiaoai-agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: xiaoai-agent
+      - name: Install cross
+        run: cargo install cross --locked
+      - name: Build release binary
+        run: cross build --locked --release --target armv7-unknown-linux-musleabihf
+      - name: Assemble ARMv7 deployment package
+        run: |
+          mkdir -p package/xiaoai-agent-songloft/logs
+          cp target/armv7-unknown-linux-musleabihf/release/xiaoai-agent package/xiaoai-agent-songloft/
+          cp agent.example.yaml package/xiaoai-agent-songloft/agent.example.yaml
+          cat > package/xiaoai-agent-songloft/start.sh <<'EOF'
+          #!/bin/sh
+          BASE="/data/xiaoai-agent-songloft"
+          mkdir -p "$BASE/logs"
+          chmod 700 "$BASE"
+          chmod 600 "$BASE/agent.yaml" 2>/dev/null || true
+          chmod +x "$BASE/xiaoai-agent"
+          exec "$BASE/xiaoai-agent" --config "$BASE/agent.yaml"
+          EOF
+          chmod +x package/xiaoai-agent-songloft/start.sh
+          cat > package/xiaoai-agent-songloft/README-DEPLOY.txt <<'EOF'
+          Install this package into /data/xiaoai-agent-songloft.
+          Copy agent.example.yaml to agent.yaml and fill in ASR, LLM and Songloft credentials.
+          Start with ./start.sh or configure your init supervisor to execute it.
+          Daily logs: logs/xiaoai-agent-YYYY-MM-DD.log. Files at least 5 days old are deleted.
+          Songloft password-mode tokens are saved to songloft-auth.json.
+          EOF
+      - name: Upload ARMv7 deployment package
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaoai-agent-songloft-armv7
+          path: xiaoai-agent/package/xiaoai-agent-songloft
+          if-no-files-found: error
+          retention-days: 14

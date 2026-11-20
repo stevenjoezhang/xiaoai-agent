@@ -15,7 +15,7 @@ pub struct AppConfig {
     pub llm: LlmConfig,
     pub agent: AgentConfig,
     pub mcp: McpConfig,
-    pub music: MusicConfig,
+    pub songloft: SongloftConfig,
     pub airplay: AirPlayConfig,
 }
 
@@ -31,7 +31,6 @@ impl AppConfig {
                     .unwrap_or_else(|_| PathBuf::from(".")),
             );
         }
-        config.resolve_paths();
         config.llm.base_url = openai_base_url(&config.llm.base_url);
         config.asr.open_ai.base_url = openai_base_url(&config.asr.open_ai.base_url);
         config.asr.openai_realtime.base_url =
@@ -39,12 +38,6 @@ impl AppConfig {
         Ok(config)
     }
 
-    fn resolve_paths(&mut self) {
-        let Some(root) = self.root.as_deref() else {
-            return;
-        };
-        resolve_optional_path(root, &mut self.music.netease.cookie_file);
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -370,6 +363,59 @@ impl Default for WebSearchConfig {
     }
 }
 
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct SongloftConfig {
+    pub enabled: bool,
+    pub base_url: String,
+    pub api_path: String,
+    pub auth: SongloftAuthConfig,
+    pub auth_state_file: PathBuf,
+    pub timeout_s: f64,
+}
+
+impl Default for SongloftConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: "http://192.168.10.1:58091".to_string(),
+            api_path: "/api/v1/jsplugin/miot/voice-commands/said".to_string(),
+            auth: SongloftAuthConfig::default(),
+            auth_state_file: PathBuf::from("/data/xiaoai-agent-songloft/songloft-auth.json"),
+            timeout_s: 10.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct SongloftAuthConfig {
+    pub mode: SongloftAuthMode,
+    pub username: String,
+    pub password: String,
+    pub token: String,
+}
+
+impl Default for SongloftAuthConfig {
+    fn default() -> Self {
+        Self {
+            mode: SongloftAuthMode::Password,
+            username: String::new(),
+            password: String::new(),
+            token: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Default, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SongloftAuthMode {
+    #[default]
+    Password,
+    PermanentToken,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct McpConfig {
@@ -418,28 +464,6 @@ impl Default for HomeAssistantMcpConfig {
             url: "http://homeassistant.local:8123/mcp_server/sse".to_string(),
             token: String::new(),
             timeout_s: 5.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct MusicConfig {
-    pub enabled: bool,
-    pub provider: String,
-    pub interruption: MusicInterruptionConfig,
-    pub netease: NeteaseConfig,
-    pub navidrome: NavidromeConfig,
-}
-
-impl Default for MusicConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            provider: "navidrome".to_string(),
-            interruption: MusicInterruptionConfig::default(),
-            netease: NeteaseConfig::default(),
-            navidrome: NavidromeConfig::default(),
         }
     }
 }
@@ -506,74 +530,6 @@ impl Default for AirPlayInterruptionConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct MusicInterruptionConfig {
-    pub mode: String,
-}
-
-impl Default for MusicInterruptionConfig {
-    fn default() -> Self {
-        Self {
-            mode: "pause".to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct NeteaseConfig {
-    pub api_base_url: String,
-    pub login_mode: String,
-    pub account: String,
-    pub phone: String,
-    pub password: String,
-    pub md5_password: String,
-    pub cookie_file: Option<PathBuf>,
-    pub default_level: String,
-    pub timeout_s: f64,
-    pub login_on_start: bool,
-}
-
-impl Default for NeteaseConfig {
-    fn default() -> Self {
-        Self {
-            api_base_url: "http://127.0.0.1:3300".to_string(),
-            login_mode: "captcha".to_string(),
-            account: String::new(),
-            phone: String::new(),
-            password: String::new(),
-            md5_password: String::new(),
-            cookie_file: None,
-            default_level: "standard".to_string(),
-            timeout_s: 5.0,
-            login_on_start: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct NavidromeConfig {
-    pub base_url: String,
-    pub username: String,
-    pub password: String,
-    pub api_version: String,
-    pub timeout_s: f64,
-}
-
-impl Default for NavidromeConfig {
-    fn default() -> Self {
-        Self {
-            base_url: "http://127.0.0.1:4533".to_string(),
-            username: String::new(),
-            password: String::new(),
-            api_version: "1.16.1".to_string(),
-            timeout_s: 5.0,
-        }
-    }
-}
-
 pub fn openai_base_url(raw: &str) -> String {
     let base = raw.trim_end_matches('/');
     if base.ends_with("/v1") {
@@ -592,33 +548,16 @@ pub fn openai_realtime_base_url(raw: &str) -> String {
     }
 }
 
-pub fn require_music_enabled(config: &AppConfig) -> anyhow::Result<()> {
-    anyhow::ensure!(config.music.enabled, "music.enabled is false");
-    Ok(())
-}
-
 pub fn timeout_duration(seconds: f64) -> Duration {
     Duration::from_secs_f64(seconds.max(0.1))
 }
 
-fn resolve_path(root: &Path, path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        root.join(path)
-    }
-}
-
-fn resolve_optional_path(root: &Path, path: &mut Option<PathBuf>) {
-    if let Some(value) = path {
-        *value = resolve_path(root, value);
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::{
         AppConfig, AsrConfig, AsrProvider, LlmConfig, LlmProtocol, LlmThinkingMode, McpConfig,
+        SongloftAuthMode, SongloftConfig,
     };
 
     #[test]
@@ -675,6 +614,18 @@ mod tests {
         assert_eq!(config.protocol, LlmProtocol::Anthropic);
         assert_eq!(config.thinking.mode, LlmThinkingMode::Disabled);
         assert_eq!(config.thinking.budget_tokens, 2048);
+    }
+
+    #[test]
+    fn parses_embedded_songloft_settings() {
+        let config: SongloftConfig = serde_yaml::from_str(
+            "enabled: true\nbase_url: http://192.168.10.1:58091\nauth:\n  mode: permanent_token\n  token: test-token\n",
+        )
+        .unwrap();
+        assert!(config.enabled);
+        assert_eq!(config.api_path, "/api/v1/jsplugin/miot/voice-commands/said");
+        assert_eq!(config.auth.mode, SongloftAuthMode::PermanentToken);
+        assert_eq!(config.auth.token, "test-token");
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Context;
 use rig_core::client::CompletionClient;
@@ -12,7 +13,7 @@ use tracing::{info, warn};
 use crate::config::{timeout_duration, AppConfig, LlmProtocol, LlmThinkingMode};
 use crate::device::Device;
 use crate::mcp::McpConnections;
-use crate::music::MusicService;
+use crate::songloft::SongloftClient;
 use crate::tools::*;
 
 pub const SPEAKER_AGENT_INSTRUCTIONS: &str = concat!(
@@ -33,16 +34,8 @@ pub const SPEAKER_AGENT_INSTRUCTIONS: &str = concat!(
     "如果目标 state 是 unavailable 或 unknown，要告诉用户设备当前不可用，不要继续假装成功。",
     "只有工具返回明确成功时才可以说操作完成。",
     "如果工具返回错误、没有匹配设备或结果不明确，要说明无法确认，不要假装成功。",
-    "当用户要求播放、搜索、停止音乐或询问当前播放内容时，必须调用音乐工具。",
-    "用户只说播放某首歌或某位歌手时，优先调用 play_music_query，",
-    "这会替换当前队列并开始播放；用户说放点音乐、随便放点歌、随机播放时，调用 play_random_music；",
-    "用户说加入、添加到队列、稍后播放时，调用 add_music_to_play_queue；",
-    "用户明确说随机加几首到队列时，调用 add_random_music_to_play_queue。",
-    "用户说下一首、上一首、暂停、继续播放时，调用对应的音乐播放控制工具。",
-    "如果候选不明确或播放失败，再简短追问或说明原因。",
-    "当音乐工具提示需要网易云验证码登录，或用户要求登录网易云时，",
-    "先调用 request_music_login_code 发送验证码；用户报出短信数字后，",
-    "调用 submit_music_login_code 完成登录；登录 cookie 只在本次进程内保存。",
+    "音乐相关请求由运行时内置的 Songloft 转发模块直接提交到 Songloft 插件，模型不负责生成音乐工具参数，也不要尝试用其他工具处理音乐请求。",
+    "不得声称已播放或已控制音乐；Songloft 返回 submitted 只表示请求已提交，不代表播放成功。",
     "当用户表达再见、拜拜、不用了、结束对话、先这样等结束意图时，",
     "必须调用 end_conversation 工具，然后用一句简短自然的告别作为最终回复。",
     "如果工具返回错误或信息不足，要坦率说明无法确认。"
@@ -65,6 +58,7 @@ pub struct AgentRuntime {
     config: Arc<AppConfig>,
     tool_server: ToolServerHandle,
     _mcp: McpConnections,
+    songloft: Option<SongloftClient>,
     history: Mutex<Vec<(String, String)>>,
     control: Arc<Mutex<AgentControl>>,
 }
@@ -73,7 +67,6 @@ impl AgentRuntime {
     pub async fn new(
         config: Arc<AppConfig>,
         device: Device,
-        music: Arc<MusicService>,
     ) -> anyhow::Result<Self> {
         let control = Arc::new(Mutex::new(AgentControl::default()));
         let tool_server = ToolServer::new()
@@ -81,22 +74,14 @@ impl AgentRuntime {
             .tool(GetWeather::new(config.clone()))
             .tool(WebSearch::new(config.clone()))
             .tool(EndConversation::new(control.clone()))
-            .tool(SearchMusic::new(music.clone()))
-            .tool(RequestMusicLoginCode::new(music.clone()))
-            .tool(SubmitMusicLoginCode::new(music.clone()))
-            .tool(PlayMusicQuery::new(music.clone()))
-            .tool(AddMusicToQueue::new(music.clone()))
-            .tool(AddRandomMusicToQueue::new(music.clone()))
-            .tool(PlayRandomMusic::new(music.clone()))
-            .tool(StopMusicPlayback::new(music.clone()))
-            .tool(PauseMusicPlayback::new(music.clone()))
-            .tool(ResumeMusicPlayback::new(music.clone()))
-            .tool(PlayNextMusic::new(music.clone()))
-            .tool(PlayPreviousMusic::new(music.clone()))
-            .tool(GetMusicStatus::new(music))
             .run();
 
         let mcp = McpConnections::connect(config.clone(), tool_server.clone()).await;
+        let songloft = if config.songloft.enabled {
+            Some(SongloftClient::new(config.songloft.clone()).await?)
+        } else {
+            None
+        };
         if let Err(err) = device.stop_audio().await {
             warn!("initial stop_audio failed, continuing: {err:?}");
         }
@@ -111,6 +96,7 @@ impl AgentRuntime {
             config,
             tool_server,
             _mcp: mcp,
+            songloft,
             history: Mutex::new(Vec::new()),
             control,
         })
@@ -121,6 +107,46 @@ impl AgentRuntime {
             let mut control = self.control.lock().await;
             control.should_end = false;
             control.end_reason.clear();
+        }
+
+        if is_music_request(message) {
+            let started = Instant::now();
+            info!(message = %message, "MUSIC_DIRECT start");
+
+            let result = match self.songloft.as_ref() {
+                Some(client) => client.command(message).await,
+                None => Err(anyhow::anyhow!("Songloft 集成未启用，请检查 agent.yaml 中的 songloft.enabled")),
+            };
+            return match result {
+                Ok(()) => {
+                    info!(
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        "MUSIC_DIRECT success"
+                    );
+                    // Songloft's submitted/status text is not a playback confirmation.
+                    // Keep successful music commands silent instead of speaking MCP chatter.
+                    self.push_history(message, "").await;
+                    Ok(AgentTurnResult {
+                        text: String::new(),
+                        should_end: false,
+                        end_reason: String::new(),
+                    })
+                }
+                Err(err) => {
+                    warn!(
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        error = %err,
+                        "MUSIC_DIRECT failed"
+                    );
+                    let text = "音乐操作失败，请重试".to_string();
+                    self.push_history(message, &text).await;
+                    Ok(AgentTurnResult {
+                        text,
+                        should_end: false,
+                        end_reason: String::new(),
+                    })
+                }
+            };
         }
 
         let prompt = self.prompt_with_history(message).await;
@@ -295,5 +321,42 @@ mod tests {
         let params = openai_thinking_params(&LlmThinkingMode::Disabled);
         assert_eq!(params["enable_thinking"], false);
         assert_eq!(params["chat_template_kwargs"]["enable_thinking"], false);
+    }
+}
+
+fn is_music_request(message: &str) -> bool {
+    let text = message.trim();
+    if text.is_empty() {
+        return false;
+    }
+    let exclusions = ["视频", "电影", "电视剧", "短片", "录像", "空调", "扫地", "洗衣机", "电视", "投影", "风扇", "窗帘", "闹钟", "定时器"];
+    if exclusions.iter().any(|word| text.contains(word)) {
+        return false;
+    }
+    let music_terms = [
+        "音乐", "歌曲", "歌单", "歌手", "专辑", "这首歌", "那首歌", "的歌", "唱歌", "听歌", "放歌", "放首", "放点", "给我放", "帮我放",
+        "下一首", "上一首", "切歌", "换首", "换一首", "单曲循环", "随机播放",
+        "随机来", "播放模式", "循环播放", "想听", "我想听", "听周杰伦", "听点歌", "听点音乐", "暂停", "继续", "停止", "暂停播放", "继续播放", "停止播放",
+        "播放", "放一首", "来一首", "唱一首", "听一首", "随便听", "放点歌",
+        "搜歌", "搜索歌曲", "收藏歌曲", "收藏这首", "音量调到", "调高音量", "调低音量", "音量加", "音量减", "大声点", "小声点",
+    ];
+    music_terms.iter().any(|word| text.contains(word))
+}
+
+#[cfg(test)]
+mod music_routing_tests {
+    use super::is_music_request;
+
+    #[test]
+    fn routes_music_commands_directly() {
+        for input in ["播放周杰伦的七里香", "下一首", "暂停播放", "搜索歌曲晴天", "播放我的歌单", "我想听周杰伦", "给我放周杰伦的歌"] {
+            assert!(is_music_request(input), "expected music route for: {input}");
+        }
+    }
+
+    #[test]
+    fn does_not_route_video_requests_as_music() {
+        assert!(!is_music_request("播放这个视频"));
+        assert!(!is_music_request("今天天气怎么样"));
     }
 }
