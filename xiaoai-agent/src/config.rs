@@ -30,7 +30,6 @@ impl AppConfig {
                     .unwrap_or_else(|_| PathBuf::from(".")),
             );
         }
-        config.resolve_paths();
         config.llm.base_url = openai_base_url(&config.llm.base_url);
         config.asr.open_ai.base_url = openai_base_url(&config.asr.open_ai.base_url);
         config.asr.openai_realtime.base_url =
@@ -38,11 +37,6 @@ impl AppConfig {
         Ok(config)
     }
 
-    fn resolve_paths(&mut self) {
-        let Some(root) = self.root.as_deref() else {
-            return;
-        };
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -504,13 +498,6 @@ pub fn timeout_duration(seconds: f64) -> Duration {
     Duration::from_secs_f64(seconds.max(0.1))
 }
 
-fn resolve_path(root: &Path, path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        root.join(path)
-    }
-}
 
 #[cfg(test)]
 mod tests {
