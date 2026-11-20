@@ -18,7 +18,7 @@ https://github.com/user-attachments/assets/b12d71b7-6734-4166-a2fe-959f82273702
 - 完全接管语音对话流程：为了避免和原生小爱同学抢麦、抢答或触发小米云端控制，本项目会将原生小爱的麦克风输入静音，真实麦克风音频由 `xiaoai-agent` 接管，使用音箱系统 TTS 命令播报回复。
 - 无需单独搭建服务器：Agent 直接运行在音箱上，不再依赖独立的 WebSocket 消息桥接层。
 - 复用设备原生音频能力：使用固件内置的常驻唤醒和 VPM 音频回调机制，音频体验完美；支持连续对话、VAD、中途打断、回声消除、播放时录音。
-- 支持工具和设备控制：使用现代 Agent 框架支撑，内置时间、天气、网络搜索、Navidrome 音乐播放工具，并可通过 Home Assistant MCP 控制智能家居。
+- 支持工具和设备控制：使用现代 Agent 框架支撑，内置时间、天气和网络搜索工具；音乐统一通过 Songloft MCP 转发给音箱插件，并可通过其他 MCP 控制智能家居。
 - 支持 AirPlay 音频输出：音箱可以作为 AirPlay 音频接收端，播放来自 iPhone、iPad、Mac 等设备的音频流。
 - 保留音箱其它系统能力：麦克风输入会被 `xiaoai-agent` 接管，但蓝牙网关等非语音对话服务不受到影响，且 LED 指示灯动态可以自定义控制。
 
@@ -106,7 +106,7 @@ cp xiaoai-agent/agent.example.yaml xiaoai-agent/agent.yaml
   `protocol` 可选 `open_ai_chat` 或 `anthropic`；Anthropic-compatible 服务可通过
   `thinking.mode` 控制推理。
 - `mcp.servers`：通用 MCP server 列表；每个 server 可独立配置 URL、token、timeout 和工具 allowlist
-- `music`：音乐服务配置，推荐使用 Navidrome；不需要音乐功能时保持 `music.enabled: false`
+- `mcp.servers`：音乐与智能家居等外部能力统一通过 MCP 接入；配置 Songloft MCP 时确保启用 `songloft_command` 工具
 - `runtime` / `capture`：唤醒和录音参数，通常先使用示例值
 - `airplay`：AirPlay 音频输出配置，默认关闭
 
@@ -186,11 +186,11 @@ chmod +x /data/init.sh
 Agent 启动后会常驻运行：
 
 1. 使用固件原生 `mipns-*` 语音前端监听唤醒词。
-2. 每次唤醒都会中断当前语音输出或音乐播放，并重置当前对话轮次。
+2. 每次唤醒都会中断当前设备音频输出，并重置当前对话轮次。
 3. 通过原生 `speech.usock` 协议接收 16 kHz 单声道 PCM 音频。
 4. 使用配置的外部 ASR 后端识别文本，可选 OpenAI-compatible HTTP ASR 或 OpenAI
    Realtime transcription。
-5. 把识别文本交给端侧 Rig Agent，并按需调用 MCP、天气、音乐等工具。
+5. 把识别文本交给端侧 Rig Agent，并按需调用 MCP、天气等工具；音乐指令交由 Songloft MCP。
 6. 使用小爱音箱系统 TTS 命令朗读回复。
 
 ## 分层设计
@@ -199,7 +199,7 @@ Agent 启动后会常驻运行：
 
 1. `/data/init.sh` 是统一的开机入口。补丁固件通过 `rc.local` 调用它；本项目提供的示例只负责启动 `start-agent.sh`，不包含型号或业务逻辑。
 2. `xiaoai-agent/start-agent.sh` 是系统和固件适配层，负责管理原生服务、设置 PNS PCM 模式、保护 `speech.usock`，以及启动检查、故障回滚和原生链路恢复。不同固件的进程名称、路径或启动方式存在差异时，应优先在这一层适配。
-3. Rust 主程序是统一的 Agent 运行层，负责音频协议、对话状态、ASR、LLM、MCP、音乐和 TTS 等功能；固件服务和运行环境的编排原则上由启动脚本承担。
+3. Rust 主程序是统一的 Agent 运行层，负责音频协议、对话状态、ASR、LLM、MCP 和 TTS 等功能；固件服务和运行环境的编排原则上由启动脚本承担。
 
 因此，只要目标固件提供兼容的 `mipns`/`speech.usock` 音频接口，同一套 Rust 程序就有机会直接复用，设备差异主要由启动脚本吸收。如果底层音频协议本身不同，则仍需为 Rust 主程序增加相应的输入适配。目前这种复用范围指兼容接口的小爱音箱 Linux 固件，并不表示程序可以在任意系统上原样运行。
 
