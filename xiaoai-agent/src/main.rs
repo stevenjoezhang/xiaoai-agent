@@ -14,7 +14,10 @@ mod tools;
 mod vad;
 mod weather;
 
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,6 +28,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::{interval, sleep, timeout, MissedTickBehavior};
 use tracing::{error, info, warn};
+use tracing_subscriber::fmt::writer::MakeWriter;
 use tracing_subscriber::EnvFilter;
 
 use crate::agent::AgentRuntime;
@@ -37,6 +41,48 @@ use crate::config::{AppConfig, DeviceConfig};
 use crate::device::Device;
 use crate::speech::{SpeechHandle, SpeechService, SpeechServiceEvent, SpeechTurn};
 
+
+#[derive(Clone)]
+struct DailyLogMakeWriter { directory: PathBuf, last_cleanup_date: Arc<Mutex<String>> }
+impl DailyLogMakeWriter {
+    fn new(directory: PathBuf) -> Self {
+        Self { directory, last_cleanup_date: Arc::new(Mutex::new(String::new())) }
+    }
+}
+struct DailyLogWriter { directory: PathBuf, last_cleanup_date: Arc<Mutex<String>> }
+impl<'a> MakeWriter<'a> for DailyLogMakeWriter {
+    type Writer = DailyLogWriter;
+    fn make_writer(&'a self) -> Self::Writer {
+        DailyLogWriter { directory: self.directory.clone(), last_cleanup_date: self.last_cleanup_date.clone() }
+    }
+}
+impl Write for DailyLogWriter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        {
+            let mut last = self.last_cleanup_date.lock().unwrap_or_else(|e| e.into_inner());
+            if *last != today { cleanup_old_logs(&self.directory); *last = today.clone(); }
+        }
+        let path = self.directory.join(format!("xiaoai-agent-{today}.log"));
+        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+        file.write_all(buffer)?;
+        Ok(buffer.len())
+    }
+    fn flush(&mut self) -> io::Result<()> { Ok(()) }
+}
+fn cleanup_old_logs(directory: &std::path::Path) {
+    use chrono::{Local, NaiveDate};
+    let today = Local::now().date_naive();
+    let Ok(entries) = fs::read_dir(directory) else { return; };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let Some(date_text) = name.strip_prefix("xiaoai-agent-").and_then(|v| v.strip_suffix(".log")) else { continue; };
+        let Ok(date) = NaiveDate::parse_from_str(date_text, "%Y-%m-%d") else { continue; };
+        if (today - date).num_days() >= 5 { let _ = fs::remove_file(entry.path()); }
+    }
+}
+
 const ASR_SERVICE_ERROR_PROMPT: &str = "抱歉，语音识别服务遇到问题，请稍后重试";
 const LLM_SERVICE_ERROR_PROMPT: &str = "抱歉，服务暂时不可用，请稍后重试";
 
@@ -44,14 +90,19 @@ const LLM_SERVICE_ERROR_PROMPT: &str = "抱歉，服务暂时不可用，请稍�
 #[command(name = "xiaoai-agent")]
 #[command(about = "Standalone XiaoAI on-device agent using the native mipns speech frontend")]
 struct Cli {
-    #[arg(short, long, default_value = "/data/open-xiaoai/agent.yaml")]
+    #[arg(short, long, default_value = "/data/xiaoai-agent-songloft/agent.yaml")]
     config: PathBuf,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let log_dir = PathBuf::from("/data/xiaoai-agent-songloft/logs");
+    fs::create_dir_all(&log_dir).context("failed to create log directory")?;
+    cleanup_old_logs(&log_dir);
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with_ansi(false)
+        .with_writer(DailyLogMakeWriter::new(log_dir))
         .init();
 
     let cli = Cli::parse();
