@@ -15,7 +15,6 @@ pub struct AppConfig {
     pub llm: LlmConfig,
     pub agent: AgentConfig,
     pub mcp: McpConfig,
-    pub music: MusicConfig,
     pub airplay: AirPlayConfig,
 }
 
@@ -43,7 +42,6 @@ impl AppConfig {
         let Some(root) = self.root.as_deref() else {
             return;
         };
-        resolve_optional_path(root, &mut self.music.netease.cookie_file);
     }
 }
 
@@ -424,28 +422,6 @@ impl Default for HomeAssistantMcpConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
-pub struct MusicConfig {
-    pub enabled: bool,
-    pub provider: String,
-    pub interruption: MusicInterruptionConfig,
-    pub netease: NeteaseConfig,
-    pub navidrome: NavidromeConfig,
-}
-
-impl Default for MusicConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            provider: "navidrome".to_string(),
-            interruption: MusicInterruptionConfig::default(),
-            netease: NeteaseConfig::default(),
-            navidrome: NavidromeConfig::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
 pub struct AirPlayConfig {
     pub enabled: bool,
     pub name: String,
@@ -502,20 +478,6 @@ impl Default for AirPlayInterruptionConfig {
         Self {
             mode: "duck".to_string(),
             duck_gain: 0.25,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct MusicInterruptionConfig {
-    pub mode: String,
-}
-
-impl Default for MusicInterruptionConfig {
-    fn default() -> Self {
-        Self {
-            mode: "pause".to_string(),
         }
     }
 }
@@ -592,11 +554,6 @@ pub fn openai_realtime_base_url(raw: &str) -> String {
     }
 }
 
-pub fn require_music_enabled(config: &AppConfig) -> anyhow::Result<()> {
-    anyhow::ensure!(config.music.enabled, "music.enabled is false");
-    Ok(())
-}
-
 pub fn timeout_duration(seconds: f64) -> Duration {
     Duration::from_secs_f64(seconds.max(0.1))
 }
@@ -606,12 +563,6 @@ fn resolve_path(root: &Path, path: &Path) -> PathBuf {
         path.to_path_buf()
     } else {
         root.join(path)
-    }
-}
-
-fn resolve_optional_path(root: &Path, path: &mut Option<PathBuf>) {
-    if let Some(value) = path {
-        *value = resolve_path(root, value);
     }
 }
 
