@@ -32,14 +32,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: xiaoai-agent
-      - name: Run tests and diagnose lockfile
-        run: |
-          set +e
-          cargo test
-          test_status=$?
-          echo "===== CARGO.LOCK DIFF AFTER TEST ====="
-          git diff -- Cargo.lock
-          exit "$test_status"
+      - name: Run tests
+        run: cargo test --locked
 
   build-armv7:
     name: Build ARMv7 musl
