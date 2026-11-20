@@ -106,7 +106,7 @@ cp xiaoai-agent/agent.example.yaml xiaoai-agent/agent.yaml
   `protocol` 可选 `open_ai_chat` 或 `anthropic`；Anthropic-compatible 服务可通过
   `thinking.mode` 控制推理。
 - `mcp.servers`：通用 MCP server 列表；每个 server 可独立配置 URL、token、timeout 和工具 allowlist
-- `mcp.servers`：音乐与智能家居等外部能力统一通过 MCP 接入；配置 Songloft MCP 时确保启用 `songloft_command` 工具
+- `mcp.servers`：音乐与智能家居等外部能力统一通过 MCP 接入；Songloft MCP 示例已写入 `agent.example.yaml`，启用 `songloft` 并保留 `songloft_command` 工具
 - `runtime` / `capture`：唤醒和录音参数，通常先使用示例值
 - `airplay`：AirPlay 音频输出配置，默认关闭
 
