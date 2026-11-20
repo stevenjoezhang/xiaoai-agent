@@ -5,7 +5,7 @@ use std::time::Duration;
 use rig_core::tool::rmcp::{McpClientError, McpTool};
 use rig_core::tool::server::ToolServerHandle;
 use rmcp::handler::client::ClientHandler;
-use rmcp::model::{ClientCapabilities, ClientInfo, Implementation, Tool};
+use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation, Tool};
 use rmcp::service::{NotificationContext, RoleClient, RunningService, ServerSink};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::{IntoTransport, StreamableHttpClientTransport};
@@ -25,11 +25,13 @@ type McpService = RunningService<RoleClient, McpToolHandler>;
 
 pub struct McpConnections {
     supervisors: Vec<JoinHandle<()>>,
+    songloft_peer: Arc<RwLock<Option<ServerSink>>>,
 }
 
 impl McpConnections {
     pub async fn connect(config: Arc<AppConfig>, tool_server: ToolServerHandle) -> Self {
         let mut supervisors = Vec::new();
+        let songloft_peer = Arc::new(RwLock::new(None));
 
         for server in configured_servers(&config) {
             if !server.enabled {
@@ -40,7 +42,7 @@ impl McpConnections {
                 continue;
             }
 
-            let service = match connect_mcp_server(&server, tool_server.clone()).await {
+            let service = match connect_mcp_server(&server, tool_server.clone(), songloft_peer.clone()).await {
                 Ok(service) => {
                     info!(server = %server.name, "connected MCP tools");
                     Some(service)
@@ -52,11 +54,33 @@ impl McpConnections {
             };
 
             let supervisor =
-                tokio::spawn(supervise_mcp_server(server, tool_server.clone(), service));
+                tokio::spawn(supervise_mcp_server(server, tool_server.clone(), songloft_peer.clone(), service));
             supervisors.push(supervisor);
         }
 
-        Self { supervisors }
+        Self { supervisors, songloft_peer }
+    }
+
+    pub async fn call_songloft_command(&self, message: &str) -> anyhow::Result<String> {
+        let peer = self.songloft_peer.read().await.clone()
+            .ok_or_else(|| anyhow::anyhow!("Songloft MCP is not connected"))?;
+        let params = CallToolRequestParams::new("songloft_command")
+            .with_arguments(serde_json::json!({"message": message}).as_object().cloned().unwrap_or_default());
+        let result = peer.call_tool(params).await
+            .map_err(|err| anyhow::anyhow!("Songloft MCP call failed: {err}"))?;
+        if result.is_error == Some(true) {
+            anyhow::bail!("Songloft MCP returned an error: {}", result.content.iter()
+                .filter_map(|block| block.raw.as_text().map(|text| text.text.as_str()))
+                .collect::<Vec<_>>().join(" "));
+        }
+        let output = result.content.iter()
+            .filter_map(|block| block.raw.as_text().map(|text| text.text.as_str()))
+            .collect::<Vec<_>>().join(" ");
+        if output.trim().is_empty() {
+            Ok("音乐请求已提交给 Songloft。".to_string())
+        } else {
+            Ok(output)
+        }
     }
 }
 
@@ -87,6 +111,7 @@ fn configured_servers(config: &AppConfig) -> Vec<McpServerConfig> {
 async fn connect_mcp_server(
     server: &McpServerConfig,
     tool_server: ToolServerHandle,
+    songloft_peer: Arc<RwLock<Option<ServerSink>>>,
 ) -> Result<McpService, McpClientError> {
     let client_info = ClientInfo::new(
         ClientCapabilities::default(),
@@ -97,6 +122,7 @@ async fn connect_mcp_server(
         client_info,
         tool_server,
         &server.tools,
+        if server.name == "songloft" { Some(songloft_peer) } else { None },
         crate::config::timeout_duration(server.timeout_s),
     );
 
@@ -123,6 +149,7 @@ async fn connect_mcp_server(
 async fn supervise_mcp_server(
     server: McpServerConfig,
     tool_server: ToolServerHandle,
+    songloft_peer: Arc<RwLock<Option<ServerSink>>>,
     mut service: Option<McpService>,
 ) {
     let mut reconnect_delay = INITIAL_RECONNECT_DELAY;
@@ -141,7 +168,7 @@ async fn supervise_mcp_server(
         );
         sleep(reconnect_delay).await;
 
-        match connect_mcp_server(&server, tool_server.clone()).await {
+        match connect_mcp_server(&server, tool_server.clone(), songloft_peer.clone()).await {
             Ok(new_service) => {
                 info!(server = %server.name, "reconnected MCP tools");
                 service = Some(new_service);
@@ -166,6 +193,7 @@ struct McpToolHandler {
     allowed_tools: HashSet<String>,
     timeout: Duration,
     managed_tool_names: RwLock<Vec<String>>,
+    songloft_peer: Option<Arc<RwLock<Option<ServerSink>>>>,
 }
 
 impl McpToolHandler {
@@ -174,6 +202,7 @@ impl McpToolHandler {
         client_info: ClientInfo,
         tool_server: ToolServerHandle,
         allowed_tools: &[String],
+        songloft_peer: Option<Arc<RwLock<Option<ServerSink>>>>,
         timeout: Duration,
     ) -> Self {
         Self {
@@ -183,6 +212,7 @@ impl McpToolHandler {
             allowed_tools: allowed_tools.iter().cloned().collect(),
             timeout,
             managed_tool_names: RwLock::new(Vec::new()),
+            songloft_peer,
         }
     }
 
@@ -205,6 +235,9 @@ impl McpToolHandler {
             if !self.tool_allowed(&name) {
                 continue;
             }
+            if name == "songloft_command" && self.songloft_peer.is_some() {
+                continue;
+            }
             let mcp_tool =
                 McpTool::from_mcp_server(tool, client.clone()).with_timeout(self.timeout);
             self.tool_server.add_tool(mcp_tool).await?;
@@ -221,10 +254,14 @@ impl McpToolHandler {
         let service = ServiceExt::serve(self, transport)
             .await
             .map_err(|err| McpClientError::ConnectionError(err.to_string()))?;
-        let tools = service.peer().list_all_tools().await?;
+        let peer = service.peer().clone();
+        if let Some(slot) = &service.service().songloft_peer {
+            *slot.write().await = Some(peer.clone());
+        }
+        let tools = peer.list_all_tools().await?;
         let count = service
             .service()
-            .replace_tools(tools, service.peer().clone())
+            .replace_tools(tools, peer)
             .await?;
         info!(server = %service.service().server_name, tool_count = count, "registered MCP tools");
         Ok(service)
@@ -301,6 +338,7 @@ mod tests {
             ClientInfo::default(),
             ToolServer::new().run(),
             &["ha_search".to_string()],
+            None,
             Duration::from_secs(1),
         );
         assert!(handler.tool_allowed("ha_search"));
