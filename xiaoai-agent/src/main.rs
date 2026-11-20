@@ -7,7 +7,6 @@ mod config;
 mod device;
 mod mcp;
 mod mcp_legacy_sse;
-mod music;
 mod shell;
 mod speech;
 mod tools;
@@ -35,7 +34,6 @@ use crate::capture::{
 };
 use crate::config::{AppConfig, DeviceConfig};
 use crate::device::Device;
-use crate::music::MusicService;
 use crate::speech::{SpeechHandle, SpeechService, SpeechServiceEvent, SpeechTurn};
 
 const ASR_SERVICE_ERROR_PROMPT: &str = "抱歉，语音识别服务遇到问题，请稍后重试";
@@ -65,9 +63,8 @@ async fn main() -> anyhow::Result<()> {
 
     let device = Device::new(config.device.clone());
     let asr = AsrClient::new(config.asr.clone())?;
-    let music = Arc::new(MusicService::new(config.clone(), device.clone())?);
     let airplay = AirPlayService::start(config.airplay.clone()).await?;
-    let agent = Arc::new(AgentRuntime::new(config.clone(), device.clone(), music.clone()).await?);
+    let agent = Arc::new(AgentRuntime::new(config.clone(), device.clone()).await?);
 
     info!(socket = %config.runtime.speech_socket, "xiaoai-agent ready");
     device
@@ -102,9 +99,8 @@ async fn main() -> anyhow::Result<()> {
                             let _ = active.task.await;
                         }
 
-                        let music_interrupted = music.interrupt_for_wake().await;
                         let airplay_interrupted = airplay.interrupt_for_wake().await;
-                        if !music_interrupted && !airplay_interrupted {
+                        if !airplay_interrupted {
                             device.abort_current_output().await;
                         }
                         cleanup_turn_leds(&device, &config.device).await;
@@ -115,7 +111,6 @@ async fn main() -> anyhow::Result<()> {
                             device: device.clone(),
                             asr: asr.clone(),
                             agent: agent.clone(),
-                            music: music.clone(),
                             airplay: airplay.clone(),
                         };
                         let (followup_tx, followup_rx) = mpsc::channel(2);
@@ -183,7 +178,6 @@ struct TurnState {
     device: Device,
     asr: AsrClient,
     agent: Arc<AgentRuntime>,
-    music: Arc<MusicService>,
     airplay: AirPlayService,
 }
 
@@ -216,7 +210,6 @@ async fn run_turn(
         state.agent.reset_session("turn failed").await;
     }
     cleanup_turn_leds(&state.device, &state.config.device).await;
-    state.music.restore_after_interruption().await;
     state.airplay.restore_after_interruption().await;
     result
 }
