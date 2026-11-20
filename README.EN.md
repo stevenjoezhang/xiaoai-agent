@@ -18,7 +18,7 @@ https://github.com/user-attachments/assets/b12d71b7-6734-4166-a2fe-959f82273702
 - Fully takes over the voice conversation flow: to avoid competing with the native XiaoAI assistant for microphone input, answers, or Xiaomi cloud-side control, this project mutes the native XiaoAI microphone input. Real microphone audio is handled by `xiaoai-agent`, and replies are spoken through the speaker's system TTS command.
 - No separate server required: the Agent runs directly on the speaker and no longer depends on an independent WebSocket message bridge.
 - Reuses native device audio capabilities: it uses the firmware's built-in resident wake word and VPM audio callback mechanism for a polished audio experience; continuous conversation, VAD, interruption, echo cancellation, and recording during playback are supported.
-- Supports tools and device control: it uses a modern Agent framework and includes built-in time, weather, web search, and Navidrome music playback tools, and can control smart home devices through Home Assistant MCP.
+- Supports tools and device control: it uses a modern Agent framework and includes built-in time, weather, and web search tools; all music requests are forwarded through Songloft MCP to the speaker plugin, and smart home devices can be controlled through other MCP servers.
 - Supports AirPlay audio output: the speaker can act as an AirPlay audio receiver and play audio streams from iPhone, iPad, Mac, and other devices.
 - Preserves other system capabilities of the speaker: microphone input is taken over by `xiaoai-agent`, but non-voice-conversation services such as the Bluetooth gateway are not affected, and LED indicator animations can be customized.
 
@@ -95,7 +95,7 @@ Then edit `xiaoai-agent/agent.yaml`:
 - `asr.openai_realtime.base_url`, `asr.openai_realtime.api_key`, `asr.openai_realtime.model`: OpenAI Realtime transcription service configuration. When `openai_realtime` is selected, `server_vad` is enabled by default: the client continuously sends enhanced VPM PCM, and the server's `speech_started` / `speech_stopped` events determine user utterance boundaries and automatically commit the final text. For FunASR, `target_sample_rate` must remain `16000`; compatible services that do not support server-side VAD can set `asr.openai_realtime.server_vad.enabled` to `false` to fall back to local energy endpoint detection.
 - `llm.protocol`, `llm.base_url`, `llm.api_key`, `llm.model`: LLM service configuration. `protocol` can be `open_ai_chat` or `anthropic`; Anthropic-compatible services can control reasoning through `thinking.mode`.
 - `mcp.servers`: generic MCP server list. Each server can independently configure URL, token, timeout, and tool allowlist.
-- `music`: music service configuration. Navidrome is recommended; keep `music.enabled: false` if music is not needed.
+- `mcp.servers`: connect external capabilities such as Songloft music and smart home control through MCP. Enable the `songloft_command` tool on the Songloft server.
 - `runtime` / `capture`: wake word and recording parameters. Usually start with the example values.
 - `airplay`: AirPlay audio output configuration. Disabled by default.
 
@@ -166,10 +166,10 @@ chmod +x /data/init.sh
 After startup, the Agent runs as a resident process:
 
 1. It uses the firmware's native `mipns-*` speech frontend to listen for the wake word.
-2. Each wake-up interrupts the current voice output or music playback and resets the current conversation turn.
+2. Each wake-up interrupts the current device audio output and resets the current conversation turn.
 3. It receives 16 kHz mono PCM audio through the native `speech.usock` protocol.
 4. It recognizes text with the configured external ASR backend, either OpenAI-compatible HTTP ASR or OpenAI Realtime transcription.
-5. It passes the recognized text to the on-device Rig Agent and calls MCP, weather, music, and other tools as needed.
+5. It passes the recognized text to the on-device Rig Agent and calls MCP, weather, and other tools as needed; music requests are routed through Songloft MCP.
 6. It speaks the reply using the XiaoAI speaker system TTS command.
 
 ## Layered Design
@@ -178,7 +178,7 @@ The project separates the boot entry point, firmware adaptation, and Agent runti
 
 1. `/data/init.sh` is the common boot entry point. The patched firmware invokes it through `rc.local`; the example provided by this project only starts `start-agent.sh` and contains no model-specific or application logic.
 2. `xiaoai-agent/start-agent.sh` is the system and firmware adaptation layer. It manages native services, configures the PNS PCM mode, protects `speech.usock`, checks startup, rolls back failures, and restores the native speech path. Differences in process names, paths, or startup behavior should be adapted here first.
-3. The Rust program is the common Agent runtime. It implements the audio protocol, conversation state, ASR, LLM, MCP, music, TTS, and related features; orchestration of firmware services and the runtime environment belongs to the launcher in principle.
+3. The Rust program is the common Agent runtime. It implements the audio protocol, conversation state, ASR, LLM, MCP, TTS, and related features; orchestration of firmware services and the runtime environment belongs to the launcher in principle.
 
 The same Rust program can therefore potentially be reused when a target firmware provides compatible `mipns`/`speech.usock` audio interfaces, with most device differences handled by the launcher. A different underlying audio protocol still requires a corresponding Rust input adapter. This reuse scope currently covers XiaoAI speaker Linux firmware with compatible interfaces; it does not mean that the program runs unchanged on arbitrary systems.
 
