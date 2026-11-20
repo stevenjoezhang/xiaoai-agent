@@ -482,60 +482,6 @@ impl Default for AirPlayInterruptionConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct NeteaseConfig {
-    pub api_base_url: String,
-    pub login_mode: String,
-    pub account: String,
-    pub phone: String,
-    pub password: String,
-    pub md5_password: String,
-    pub cookie_file: Option<PathBuf>,
-    pub default_level: String,
-    pub timeout_s: f64,
-    pub login_on_start: bool,
-}
-
-impl Default for NeteaseConfig {
-    fn default() -> Self {
-        Self {
-            api_base_url: "http://127.0.0.1:3300".to_string(),
-            login_mode: "captcha".to_string(),
-            account: String::new(),
-            phone: String::new(),
-            password: String::new(),
-            md5_password: String::new(),
-            cookie_file: None,
-            default_level: "standard".to_string(),
-            timeout_s: 5.0,
-            login_on_start: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct NavidromeConfig {
-    pub base_url: String,
-    pub username: String,
-    pub password: String,
-    pub api_version: String,
-    pub timeout_s: f64,
-}
-
-impl Default for NavidromeConfig {
-    fn default() -> Self {
-        Self {
-            base_url: "http://127.0.0.1:4533".to_string(),
-            username: String::new(),
-            password: String::new(),
-            api_version: "1.16.1".to_string(),
-            timeout_s: 5.0,
-        }
-    }
-}
-
 pub fn openai_base_url(raw: &str) -> String {
     let base = raw.trim_end_matches('/');
     if base.ends_with("/v1") {
