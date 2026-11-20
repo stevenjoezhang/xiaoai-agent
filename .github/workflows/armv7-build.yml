@@ -80,6 +80,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xiaoai-agent-songloft-armv7
-          path: package/xiaoai-agent-songloft
+          path: xiaoai-agent/package/xiaoai-agent-songloft
           if-no-files-found: error
           retention-days: 14
