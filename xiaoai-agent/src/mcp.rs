@@ -12,7 +12,7 @@ use rmcp::transport::{IntoTransport, StreamableHttpClientTransport};
 use rmcp::ServiceExt;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 use tracing::{info, warn};
 
 use crate::config::{AppConfig, McpServerConfig};
@@ -66,7 +66,8 @@ impl McpConnections {
             .ok_or_else(|| anyhow::anyhow!("Songloft MCP is not connected"))?;
         let params = CallToolRequestParams::new("songloft_command")
             .with_arguments(serde_json::json!({"message": message}).as_object().cloned().unwrap_or_default());
-        let result = peer.call_tool(params).await
+        let result = timeout(Duration::from_secs(10), peer.call_tool(params)).await
+            .map_err(|_| anyhow::anyhow!("Songloft MCP call timed out after 10 seconds"))?
             .map_err(|err| anyhow::anyhow!("Songloft MCP call failed: {err}"))?;
         if result.is_error == Some(true) {
             anyhow::bail!("Songloft MCP returned an error: {}", result.content.iter()
@@ -255,14 +256,19 @@ impl McpToolHandler {
             .await
             .map_err(|err| McpClientError::ConnectionError(err.to_string()))?;
         let peer = service.peer().clone();
-        if let Some(slot) = &service.service().songloft_peer {
-            *slot.write().await = Some(peer.clone());
-        }
         let tools = peer.list_all_tools().await?;
         let count = service
             .service()
             .replace_tools(tools, peer)
             .await?;
+        if let Some(slot) = &service.service().songloft_peer {
+            if tools.iter().any(|tool| tool.name == "songloft_command") {
+                *slot.write().await = Some(peer);
+                info!("Songloft direct command endpoint is ready");
+            } else {
+                warn!("Songloft MCP connected but songloft_command tool is missing");
+            }
+        }
         info!(server = %service.service().server_name, tool_count = count, "registered MCP tools");
         Ok(service)
     }
