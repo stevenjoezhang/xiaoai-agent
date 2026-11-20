@@ -97,7 +97,7 @@ songloft:
   base_url: http://192.168.10.1:58091
   api_path: /api/v1/jsplugin/miot/voice-commands/said
   timeout_s: 10
-  auth_state_file: /data/songloft-mcp-auth.json
+  auth_state_file: /data/xiaoai-agent-songloft/songloft-auth.json
   auth:
     # password or permanent_token
     mode: password
