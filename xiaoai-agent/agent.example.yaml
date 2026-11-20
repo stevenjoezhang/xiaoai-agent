@@ -90,6 +90,21 @@ agent:
     max_results: 3
     search_depth: basic
 
+# Songloft MIoT command forwarding is built into xiaoai-agent.
+# Copy the username/password (or permanent token) from the former songloft-mcp.yaml.
+songloft:
+  enabled: true
+  base_url: http://192.168.10.1:58091
+  api_path: /api/v1/jsplugin/miot/voice-commands/said
+  timeout_s: 10
+  auth_state_file: /data/songloft-mcp-auth.json
+  auth:
+    # password or permanent_token
+    mode: password
+    username: ""
+    password: ""
+    token: ""
+
 mcp:
   servers:
   - name: home_assistant
@@ -99,15 +114,6 @@ mcp:
     timeout_s: 10
     # Empty means expose every tool from this server.
     tools: []
-  # Songloft MCP: all music requests are forwarded to the speaker plugin.
-  - name: songloft
-    enabled: false
-    url: http://127.0.0.1:8088/mcp
-    token: ""
-    timeout_s: 10
-    tools:
-      - songloft_command
-
 airplay:
   enabled: false
   name: XiaoAI AirPlay

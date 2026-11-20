@@ -5,7 +5,7 @@ use std::time::Duration;
 use rig_core::tool::rmcp::{McpClientError, McpTool};
 use rig_core::tool::server::ToolServerHandle;
 use rmcp::handler::client::ClientHandler;
-use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation, Tool};
+use rmcp::model::{ClientCapabilities, ClientInfo, Implementation, Tool};
 use rmcp::service::{NotificationContext, RoleClient, RunningService, ServerSink};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::{IntoTransport, StreamableHttpClientTransport};
@@ -25,13 +25,11 @@ type McpService = RunningService<RoleClient, McpToolHandler>;
 
 pub struct McpConnections {
     supervisors: Vec<JoinHandle<()>>,
-    songloft_peer: Arc<RwLock<Option<ServerSink>>>,
 }
 
 impl McpConnections {
     pub async fn connect(config: Arc<AppConfig>, tool_server: ToolServerHandle) -> Self {
         let mut supervisors = Vec::new();
-        let songloft_peer = Arc::new(RwLock::new(None));
 
         for server in configured_servers(&config) {
             if !server.enabled {
@@ -42,7 +40,7 @@ impl McpConnections {
                 continue;
             }
 
-            let service = match connect_mcp_server(&server, tool_server.clone(), songloft_peer.clone()).await {
+            let service = match connect_mcp_server(&server, tool_server.clone()).await {
                 Ok(service) => {
                     info!(server = %server.name, "connected MCP tools");
                     Some(service)
@@ -54,58 +52,13 @@ impl McpConnections {
             };
 
             let supervisor =
-                tokio::spawn(supervise_mcp_server(server, tool_server.clone(), songloft_peer.clone(), service));
+                tokio::spawn(supervise_mcp_server(server, tool_server.clone(), service));
             supervisors.push(supervisor);
         }
 
-        Self { supervisors, songloft_peer }
+        Self { supervisors }
     }
 
-    pub async fn call_songloft_command(&self, message: &str) -> anyhow::Result<String> {
-        let peer = self.songloft_peer.read().await.clone()
-            .ok_or_else(|| anyhow::anyhow!("Songloft MCP is not connected"))?;
-        let params = CallToolRequestParams::new("songloft_command")
-            .with_arguments(serde_json::json!({"message": message}).as_object().cloned().unwrap_or_default());
-        let result = timeout(Duration::from_secs(10), peer.call_tool(params)).await
-            .map_err(|_| anyhow::anyhow!("Songloft MCP call timed out after 10 seconds"))?
-            .map_err(|err| anyhow::anyhow!("Songloft MCP call failed: {err}"))?;
-        if result.is_error == Some(true) {
-            anyhow::bail!("Songloft MCP returned an error: {}", result.content.iter()
-                .filter_map(|block| block.raw.as_text().map(|text| text.text.as_str()))
-                .collect::<Vec<_>>().join(" "));
-        }
-        let output = result.content.iter()
-            .filter_map(|block| block.raw.as_text().map(|text| text.text.as_str()))
-            .collect::<Vec<_>>().join(" ");
-        let structured = result.structured_content.as_ref();
-        if structured.and_then(|value| value.get("submitted")).and_then(serde_json::Value::as_bool) == Some(true)
-            || serde_json::from_str::<serde_json::Value>(&output).ok()
-                .and_then(|value| value.get("submitted").and_then(serde_json::Value::as_bool))
-                == Some(true)
-        {
-            return Ok("音乐指令已提交给 Songloft 插件。".to_string());
-        }
-        if output.trim().is_empty() {
-            if let Some(message) = structured
-                .and_then(|value| value.get("message"))
-                .and_then(serde_json::Value::as_str)
-            {
-                Ok(message.to_string())
-            } else if structured.is_some() {
-                Ok(structured.unwrap().to_string())
-            } else {
-                Ok("Songloft 已收到音乐指令。".to_string())
-            }
-        } else if let Ok(value) = serde_json::from_str::<serde_json::Value>(&output) {
-            if let Some(message) = value.get("message").and_then(serde_json::Value::as_str) {
-                Ok(message.to_string())
-            } else {
-                Ok(output)
-            }
-        } else {
-            Ok(output)
-        }
-    }
 }
 
 impl Drop for McpConnections {
@@ -117,7 +70,10 @@ impl Drop for McpConnections {
 }
 
 fn configured_servers(config: &AppConfig) -> Vec<McpServerConfig> {
+    // Songloft command forwarding is built into xiaoai-agent now. Ignore any
+    // legacy Songloft MCP server entry so the standalone process is not started.
     let mut servers = config.mcp.servers.clone();
+    servers.retain(|server| server.name != "songloft");
     let legacy = &config.mcp.home_assistant;
     if legacy.enabled && !servers.iter().any(|server| server.name == "home_assistant") {
         servers.push(McpServerConfig {
@@ -135,7 +91,6 @@ fn configured_servers(config: &AppConfig) -> Vec<McpServerConfig> {
 async fn connect_mcp_server(
     server: &McpServerConfig,
     tool_server: ToolServerHandle,
-    songloft_peer: Arc<RwLock<Option<ServerSink>>>,
 ) -> Result<McpService, McpClientError> {
     let client_info = ClientInfo::new(
         ClientCapabilities::default(),
@@ -146,7 +101,6 @@ async fn connect_mcp_server(
         client_info,
         tool_server,
         &server.tools,
-        if server.name == "songloft" { Some(songloft_peer) } else { None },
         crate::config::timeout_duration(server.timeout_s),
     );
 
@@ -173,7 +127,6 @@ async fn connect_mcp_server(
 async fn supervise_mcp_server(
     server: McpServerConfig,
     tool_server: ToolServerHandle,
-    songloft_peer: Arc<RwLock<Option<ServerSink>>>,
     mut service: Option<McpService>,
 ) {
     let mut reconnect_delay = INITIAL_RECONNECT_DELAY;
@@ -192,7 +145,7 @@ async fn supervise_mcp_server(
         );
         sleep(reconnect_delay).await;
 
-        match connect_mcp_server(&server, tool_server.clone(), songloft_peer.clone()).await {
+        match connect_mcp_server(&server, tool_server.clone()).await {
             Ok(new_service) => {
                 info!(server = %server.name, "reconnected MCP tools");
                 service = Some(new_service);
@@ -217,7 +170,6 @@ struct McpToolHandler {
     allowed_tools: HashSet<String>,
     timeout: Duration,
     managed_tool_names: RwLock<Vec<String>>,
-    songloft_peer: Option<Arc<RwLock<Option<ServerSink>>>>,
 }
 
 impl McpToolHandler {
@@ -226,7 +178,6 @@ impl McpToolHandler {
         client_info: ClientInfo,
         tool_server: ToolServerHandle,
         allowed_tools: &[String],
-        songloft_peer: Option<Arc<RwLock<Option<ServerSink>>>>,
         timeout: Duration,
     ) -> Self {
         Self {
@@ -236,7 +187,6 @@ impl McpToolHandler {
             allowed_tools: allowed_tools.iter().cloned().collect(),
             timeout,
             managed_tool_names: RwLock::new(Vec::new()),
-            songloft_peer,
         }
     }
 
@@ -259,9 +209,6 @@ impl McpToolHandler {
             if !self.tool_allowed(&name) {
                 continue;
             }
-            if name == "songloft_command" && self.songloft_peer.is_some() {
-                continue;
-            }
             let mcp_tool =
                 McpTool::from_mcp_server(tool, client.clone()).with_timeout(self.timeout);
             self.tool_server.add_tool(mcp_tool).await?;
@@ -280,19 +227,10 @@ impl McpToolHandler {
             .map_err(|err| McpClientError::ConnectionError(err.to_string()))?;
         let peer = service.peer().clone();
         let tools = peer.list_all_tools().await?;
-        let has_songloft_command = tools.iter().any(|tool| tool.name == "songloft_command");
         let count = service
             .service()
             .replace_tools(tools, peer.clone())
             .await?;
-        if let Some(slot) = &service.service().songloft_peer {
-            if has_songloft_command {
-                *slot.write().await = Some(peer);
-                info!("Songloft direct command endpoint is ready");
-            } else {
-                warn!("Songloft MCP connected but songloft_command tool is missing");
-            }
-        }
         info!(server = %service.service().server_name, tool_count = count, "registered MCP tools");
         Ok(service)
     }
@@ -368,7 +306,6 @@ mod tests {
             ClientInfo::default(),
             ToolServer::new().run(),
             &["ha_search".to_string()],
-            None,
             Duration::from_secs(1),
         );
         assert!(handler.tool_allowed("ha_search"));

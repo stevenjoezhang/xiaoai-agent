@@ -13,6 +13,7 @@ use tracing::{info, warn};
 use crate::config::{timeout_duration, AppConfig, LlmProtocol, LlmThinkingMode};
 use crate::device::Device;
 use crate::mcp::McpConnections;
+use crate::songloft::SongloftClient;
 use crate::tools::*;
 
 pub const SPEAKER_AGENT_INSTRUCTIONS: &str = concat!(
@@ -57,6 +58,7 @@ pub struct AgentRuntime {
     config: Arc<AppConfig>,
     tool_server: ToolServerHandle,
     mcp: McpConnections,
+    songloft: Option<SongloftClient>,
     history: Mutex<Vec<(String, String)>>,
     control: Arc<Mutex<AgentControl>>,
 }
@@ -75,6 +77,11 @@ impl AgentRuntime {
             .run();
 
         let mcp = McpConnections::connect(config.clone(), tool_server.clone()).await;
+        let songloft = if config.songloft.enabled {
+            Some(SongloftClient::new(config.songloft.clone()).await?)
+        } else {
+            None
+        };
         if let Err(err) = device.stop_audio().await {
             warn!("initial stop_audio failed, continuing: {err:?}");
         }
@@ -89,6 +96,7 @@ impl AgentRuntime {
             config,
             tool_server,
             mcp,
+            songloft,
             history: Mutex::new(Vec::new()),
             control,
         })
@@ -105,8 +113,12 @@ impl AgentRuntime {
             let started = Instant::now();
             info!(message = %message, "MUSIC_DIRECT start");
 
-            return match self.mcp.call_songloft_command(message).await {
-                Ok(_result) => {
+            let result = match self.songloft.as_ref() {
+                Some(client) => client.command(message).await,
+                None => Err(anyhow::anyhow!("Songloft 集成未启用，请检查 agent.yaml 中的 songloft.enabled")),
+            };
+            return match result {
+                Ok(()) => {
                     info!(
                         elapsed_ms = started.elapsed().as_millis() as u64,
                         "MUSIC_DIRECT success"

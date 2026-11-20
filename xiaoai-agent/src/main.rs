@@ -9,6 +9,7 @@ mod mcp;
 mod mcp_legacy_sse;
 mod shell;
 mod speech;
+mod songloft;
 mod tools;
 mod vad;
 mod weather;

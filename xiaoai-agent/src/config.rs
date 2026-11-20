@@ -15,6 +15,7 @@ pub struct AppConfig {
     pub llm: LlmConfig,
     pub agent: AgentConfig,
     pub mcp: McpConfig,
+    pub songloft: SongloftConfig,
     pub airplay: AirPlayConfig,
 }
 
@@ -360,6 +361,59 @@ impl Default for WebSearchConfig {
             search_depth: "basic".to_string(),
         }
     }
+}
+
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct SongloftConfig {
+    pub enabled: bool,
+    pub base_url: String,
+    pub api_path: String,
+    pub auth: SongloftAuthConfig,
+    pub auth_state_file: PathBuf,
+    pub timeout_s: f64,
+}
+
+impl Default for SongloftConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: "http://192.168.10.1:58091".to_string(),
+            api_path: "/api/v1/jsplugin/miot/voice-commands/said".to_string(),
+            auth: SongloftAuthConfig::default(),
+            auth_state_file: PathBuf::from("/data/songloft-mcp-auth.json"),
+            timeout_s: 10.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct SongloftAuthConfig {
+    pub mode: SongloftAuthMode,
+    pub username: String,
+    pub password: String,
+    pub token: String,
+}
+
+impl Default for SongloftAuthConfig {
+    fn default() -> Self {
+        Self {
+            mode: SongloftAuthMode::Password,
+            username: String::new(),
+            password: String::new(),
+            token: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Default, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SongloftAuthMode {
+    #[default]
+    Password,
+    PermanentToken,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
