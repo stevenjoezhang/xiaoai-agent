@@ -382,7 +382,7 @@ impl Default for SongloftConfig {
             base_url: "http://192.168.10.1:58091".to_string(),
             api_path: "/api/v1/jsplugin/miot/voice-commands/said".to_string(),
             auth: SongloftAuthConfig::default(),
-            auth_state_file: PathBuf::from("/data/songloft-mcp-auth.json"),
+            auth_state_file: PathBuf::from("/data/xiaoai-agent-songloft/songloft-auth.json"),
             timeout_s: 10.0,
         }
     }
