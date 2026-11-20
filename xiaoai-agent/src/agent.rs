@@ -12,7 +12,6 @@ use tracing::{info, warn};
 use crate::config::{timeout_duration, AppConfig, LlmProtocol, LlmThinkingMode};
 use crate::device::Device;
 use crate::mcp::McpConnections;
-use crate::music::MusicService;
 use crate::tools::*;
 
 pub const SPEAKER_AGENT_INSTRUCTIONS: &str = concat!(
@@ -33,16 +32,9 @@ pub const SPEAKER_AGENT_INSTRUCTIONS: &str = concat!(
     "如果目标 state 是 unavailable 或 unknown，要告诉用户设备当前不可用，不要继续假装成功。",
     "只有工具返回明确成功时才可以说操作完成。",
     "如果工具返回错误、没有匹配设备或结果不明确，要说明无法确认，不要假装成功。",
-    "当用户要求播放、搜索、停止音乐或询问当前播放内容时，必须调用音乐工具。",
-    "用户只说播放某首歌或某位歌手时，优先调用 play_music_query，",
-    "这会替换当前队列并开始播放；用户说放点音乐、随便放点歌、随机播放时，调用 play_random_music；",
-    "用户说加入、添加到队列、稍后播放时，调用 add_music_to_play_queue；",
-    "用户明确说随机加几首到队列时，调用 add_random_music_to_play_queue。",
-    "用户说下一首、上一首、暂停、继续播放时，调用对应的音乐播放控制工具。",
-    "如果候选不明确或播放失败，再简短追问或说明原因。",
-    "当音乐工具提示需要网易云验证码登录，或用户要求登录网易云时，",
-    "先调用 request_music_login_code 发送验证码；用户报出短信数字后，",
-    "调用 submit_music_login_code 完成登录；登录 cookie 只在本次进程内保存。",
+    "音乐功能统一由 Songloft MCP 提供。用户提出播放、搜索、歌单、队列、上一首、下一首、暂停、继续、停止、音量或其他音乐相关请求时，必须调用 MCP 工具 songloft_command。",
+    "调用 songloft_command 时，将当前用户的完整原始请求作为 message 传入；不要改写、摘要、翻译或补充用户没有说过的内容。",
+    "不得声称已播放或已控制音乐，除非 songloft_command 的工具结果明确确认成功；submitted 只表示请求已提交，不代表播放成功。",
     "当用户表达再见、拜拜、不用了、结束对话、先这样等结束意图时，",
     "必须调用 end_conversation 工具，然后用一句简短自然的告别作为最终回复。",
     "如果工具返回错误或信息不足，要坦率说明无法确认。"
@@ -73,7 +65,6 @@ impl AgentRuntime {
     pub async fn new(
         config: Arc<AppConfig>,
         device: Device,
-        music: Arc<MusicService>,
     ) -> anyhow::Result<Self> {
         let control = Arc::new(Mutex::new(AgentControl::default()));
         let tool_server = ToolServer::new()
@@ -81,19 +72,6 @@ impl AgentRuntime {
             .tool(GetWeather::new(config.clone()))
             .tool(WebSearch::new(config.clone()))
             .tool(EndConversation::new(control.clone()))
-            .tool(SearchMusic::new(music.clone()))
-            .tool(RequestMusicLoginCode::new(music.clone()))
-            .tool(SubmitMusicLoginCode::new(music.clone()))
-            .tool(PlayMusicQuery::new(music.clone()))
-            .tool(AddMusicToQueue::new(music.clone()))
-            .tool(AddRandomMusicToQueue::new(music.clone()))
-            .tool(PlayRandomMusic::new(music.clone()))
-            .tool(StopMusicPlayback::new(music.clone()))
-            .tool(PauseMusicPlayback::new(music.clone()))
-            .tool(ResumeMusicPlayback::new(music.clone()))
-            .tool(PlayNextMusic::new(music.clone()))
-            .tool(PlayPreviousMusic::new(music.clone()))
-            .tool(GetMusicStatus::new(music))
             .run();
 
         let mcp = McpConnections::connect(config.clone(), tool_server.clone()).await;
