@@ -154,12 +154,6 @@ impl SongloftClient {
                 Ok(token.to_owned())
             }
             SongloftAuthMode::Password => {
-                if self.config.auth.username.trim().is_empty()
-                    || self.config.auth.password.is_empty()
-                {
-                    bail!("Songloft password 模式必须配置 username 和 password");
-                }
-
                 let mut state = self.auth_state.lock().await;
                 let now = Utc::now().timestamp();
 
@@ -191,6 +185,12 @@ impl SongloftClient {
                             state.expires_at = 0;
                         }
                     }
+                }
+
+                if self.config.auth.username.trim().is_empty()
+                    || self.config.auth.password.is_empty()
+                {
+                    bail!("Songloft password 模式必须配置 username 和 password");
                 }
 
                 let reply = self.login().await?;

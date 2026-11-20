@@ -557,6 +557,7 @@ pub fn timeout_duration(seconds: f64) -> Duration {
 mod tests {
     use super::{
         AppConfig, AsrConfig, AsrProvider, LlmConfig, LlmProtocol, LlmThinkingMode, McpConfig,
+        SongloftAuthMode, SongloftConfig,
     };
 
     #[test]
@@ -613,6 +614,18 @@ mod tests {
         assert_eq!(config.protocol, LlmProtocol::Anthropic);
         assert_eq!(config.thinking.mode, LlmThinkingMode::Disabled);
         assert_eq!(config.thinking.budget_tokens, 2048);
+    }
+
+    #[test]
+    fn parses_embedded_songloft_settings() {
+        let config: SongloftConfig = serde_yaml::from_str(
+            "enabled: true\\nbase_url: http://192.168.10.1:58091\\nauth:\\n  mode: permanent_token\\n  token: test-token\\n",
+        )
+        .unwrap();
+        assert!(config.enabled);
+        assert_eq!(config.api_path, "/api/v1/jsplugin/miot/voice-commands/said");
+        assert_eq!(config.auth.mode, SongloftAuthMode::PermanentToken);
+        assert_eq!(config.auth.token, "test-token");
     }
 
     #[test]
